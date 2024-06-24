@@ -1,4 +1,8 @@
 
+const INFO_COLOR: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0xFF);
+const WARNING_COLOR: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xFF, 0);
+const ERROR_COLOR: egui::Color32 = egui::Color32::from_rgb(0xFF, 0, 0);
+
 enum DebugMessage {
     Info(String),
     Warning(String),
@@ -22,16 +26,16 @@ impl DebugMessage {
     pub fn to_label(&self) -> egui::Label {
         match self {
             Self::Info(msg) => egui::Label::new(
-                egui::RichText::new(format!("INFO: {}", msg))
-                    .color(egui::Color32::BLUE)
+                egui::RichText::new(msg)
+                    .color(INFO_COLOR)
             ),
             Self::Warning(msg) => egui::Label::new(
-                egui::RichText::new(format!("WARNING: {}", msg))
-                    .color(egui::Color32::YELLOW)
+                egui::RichText::new(msg)
+                    .color(WARNING_COLOR)
             ),
             Self::Error(msg) => egui::Label::new(
-                egui::RichText::new(format!("ERROR: {}", msg))
-                    .color(egui::Color32::RED)
+                egui::RichText::new(msg)
+                    .color(ERROR_COLOR)
             ),
         }
 
@@ -76,8 +80,17 @@ impl Debug {
             .resizable(true)
             // .anchor(Align2::LEFT_TOP, [0.0, 0.0])
             .show(&ui, |ui| {
-                if ui.add(egui::Button::new("Click me")).clicked() {
-                    self.info("Button clicked");
+
+                if ui.add(egui::Button::new("Info")).clicked() {
+                    self.info("This is an info message");
+                }
+                
+                if ui.add(egui::Button::new("Warning")).clicked() {
+                    self.warning("This is a warning message");
+                }
+
+                if ui.add(egui::Button::new("Error")).clicked() {
+                    self.error("This is an error message");
                 }
 
                 ui.label("Slider");
@@ -89,14 +102,21 @@ impl Debug {
 
         egui::Window::new("Debug Console")
             .default_open(false)
-            .vscroll(true)
             .show(&ui, |ui| {
-                ui.label("Debug Console");
+                ui.horizontal(|ui| {
+                    ui.label("Debug Console");
+                    if ui.button("Clear").on_hover_text("Clear the debug console").clicked() {
+                        self.debug_console.clear();
+                    };
+                });
                 ui.separator();
-                ui.vertical_centered(|ui| {
-                    for msg in self.debug_console.iter() {
-                        ui.add(msg.to_label());
-                    }
+                ui.vertical(|ui| {
+
+                    egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                        for msg in self.debug_console.iter() {
+                            ui.add(msg.to_label());
+                        }
+                    });
                 });
             });
     }
