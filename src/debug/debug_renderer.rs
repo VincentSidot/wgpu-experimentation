@@ -3,6 +3,8 @@ use egui::{epaint::Shadow, Context, Visuals};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 
+use crate::{DrawPipeline, GraphicalProcessUnit};
+
 pub struct DebugRenderer {
     pub context: Context,
     state: State,
@@ -58,15 +60,11 @@ impl DebugRenderer {
 
     pub fn draw(
         &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        window: &winit::window::Window,
-        window_surface_view: &wgpu::TextureView,
-        screen_descriptor: egui_wgpu::ScreenDescriptor,
+        gpu: &GraphicalProcessUnit,
+        pipeline: DrawPipeline,
         run_ui: impl FnOnce(&egui::Context),
     ) {
-        let raw_input = self.state.take_egui_input(&window);
+        let raw_input = self.state.take_egui_input(pipeline.window);
 
         let full_output = self.context.run(
             raw_input,
@@ -76,7 +74,10 @@ impl DebugRenderer {
         );
 
         self.state
-            .handle_platform_output(&window, full_output.platform_output);
+            .handle_platform_output(
+                pipeline.window,
+                full_output.platform_output
+            );
 
         let tris = self
             .context
@@ -84,15 +85,21 @@ impl DebugRenderer {
 
         for (id, image_delta) in &full_output.textures_delta.set {
             self.renderer
-                .update_texture(&device, &queue, *id, &image_delta);
+                .update_texture(&gpu.device, &gpu.queue, *id, image_delta);
         }
 
         self.renderer
-            .update_buffers(&device, &queue, encoder, &tris, &screen_descriptor);
+            .update_buffers(
+                &gpu.device,
+                &gpu.queue,
+                pipeline.encoder,
+                &tris,
+                pipeline.screen
+            );
 
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut rpass = pipeline.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &window_surface_view,
+                view: pipeline.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -106,7 +113,11 @@ impl DebugRenderer {
         });
 
         self.renderer
-            .render(&mut rpass, &tris, &screen_descriptor);
+            .render(
+                &mut rpass,
+                &tris,
+                pipeline.screen
+            );
         drop(rpass);
 
         for x in &full_output.textures_delta.free {

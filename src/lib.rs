@@ -13,12 +13,23 @@ pub enum WindowSize {
     Default,
 }
 
+struct GraphicalProcessUnit<'a> {
+    pub surface: wgpu::Surface<'a>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub config: wgpu::SurfaceConfiguration,
+}
+
+struct DrawPipeline<'a> {
+    encoder: &'a mut wgpu::CommandEncoder,
+    window: &'a winit::window::Window,
+    view: &'a wgpu::TextureView,
+    screen: &'a egui_wgpu::ScreenDescriptor,
+}
+
 struct App<'a> {
     // Graphics Devices
-    surface: wgpu::Surface<'a>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
+    gpu: GraphicalProcessUnit<'a>,
 
     // Graphic Pipeline
     pipeline: graphics::Pipeline,
@@ -115,7 +126,7 @@ impl<'a> App<'a> {
             config.format,
             None,
             1,
-            &window,
+            window,
         );
 
         // Setup the debug window
@@ -126,10 +137,12 @@ impl<'a> App<'a> {
 
 
         Ok(Self {
-            surface,
-            device,
-            queue,
-            config,
+            gpu: GraphicalProcessUnit {
+                surface,
+                device,
+                queue,
+                config,
+            },
             pipeline,
             debug_renderer,
             debug_window,
@@ -149,9 +162,9 @@ impl<'a> App<'a> {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
+            self.gpu.config.width = new_size.width;
+            self.gpu.config.height = new_size.height;
+            self.gpu.surface.configure(&self.gpu.device, &self.gpu.config);
         }
     }
 
@@ -171,7 +184,7 @@ impl<'a> App<'a> {
         W: Fn(&Duration) -> String,
         D: Fn(&Duration) -> String
     {
-        let output = self.surface.get_current_texture()?;
+        let output = self.gpu.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: None,
@@ -184,6 +197,7 @@ impl<'a> App<'a> {
         });
 
         let mut encoder = self
+            .gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
@@ -191,7 +205,7 @@ impl<'a> App<'a> {
 
 
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [self.config.width, self.config.height],
+            size_in_pixels: [self.gpu.config.width, self.gpu.config.height],
             pixels_per_point: self.window().scale_factor() as f32,
         };
 
@@ -200,23 +214,26 @@ impl<'a> App<'a> {
             self.pipeline.render(&view, &mut encoder)
         );
 
+        let draw_pipeline = DrawPipeline {
+            encoder: &mut encoder,
+            window: self.window,
+            view: &view,
+            screen: &screen_descriptor,
+        };
+
 
         elapsed_handler!(
             debug_time,
             self.debug_renderer.draw(
-                &self.device,
-                &self.queue,
-                &mut encoder,
-                &self.window,
-                &view,
-                screen_descriptor,
+                &self.gpu,
+                draw_pipeline,
                 |ui| {
                     self.debug_window.run_ui(ui);
                 }
             )
         );
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
@@ -325,7 +342,7 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
                                     // Nothing to do yet
                                 }
                             };
-                            app.debug_renderer.handle_input(&mut app.window, &event)
+                            app.debug_renderer.handle_input(app.window, event)
                         },
                         |elapsed: std::time::Duration| 1_000_000_000 / elapsed.as_nanos()
                     );

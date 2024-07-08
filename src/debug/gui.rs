@@ -90,7 +90,7 @@ impl Debug {
             .default_width(800.0)
             .resizable(true)
             // .anchor(Align2::LEFT_TOP, [0.0, 0.0])
-            .show(&ui, |ui| {               
+            .show(ui, |ui| {               
                 for item in self.debug_items.iter_mut() {
                     item.borrow_mut().draw(ui, &mut self.debug_console);
                 }
@@ -99,7 +99,7 @@ impl Debug {
         if !self.debug_console.is_empty() {
             egui::Window::new("Debug Console")
                 .default_open(true)
-                .show(&ui, |ui| {
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Debug Console");
                         if ui.button("Clear").on_hover_text("Clear the debug console").clicked() {
