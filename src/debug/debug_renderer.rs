@@ -27,7 +27,8 @@ impl DebugRenderer {
         let visuals = Visuals {
             window_rounding: egui::Rounding::same(BORDER_RADIUS),
             window_shadow: Shadow::NONE,
-            ..Default::default()
+
+            ..Visuals::dark()
         };
 
         egui_context.set_visuals(visuals);

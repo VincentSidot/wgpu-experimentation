@@ -4,13 +4,18 @@ use wgpu::util::DeviceExt;
 
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Vertex {
     position: [f32; 3],
     color: [f32; 3],
 }
 
+/// Implement the Vertex struct
 impl Vertex {
+
+    /// Describes the layout of the Vertex struct
+    /// 
+    /// This is used to tell the GPU how to interpret the data in the vertex buffer
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -29,33 +34,87 @@ impl Vertex {
             ]
         }
     }
+
+    pub fn new(position: [f32; 3], color: [f32; 3]) -> Self {
+        Self {
+            position,
+            color,
+        }
+    }
+
+    pub fn with_position(&mut self, position: [f32; 3]) -> &mut Self {
+        self.position = position;
+        self
+    }
+
+    pub fn with_color(&mut self, color: [f32; 3]) -> &mut Self {
+        self.color = color;
+        self
+    }
+
+    pub fn color(&self) -> [f32; 3] {
+        self.color
+    }
+
+    pub fn position(&self) -> [f32; 3] {
+        self.position
+    }
+
+    pub fn position_mut(&mut self) -> &mut [f32; 3] {
+        &mut self.position
+    }
+
+    pub fn color_mut(&mut self) -> &mut [f32; 3] {
+        &mut self.color
+    }
+
+    pub fn set_position(&mut self, position: [f32; 3]) {
+        self.position = position;
+    }
+
+    pub fn set_color(&mut self, color: [f32; 3]) {
+        self.color = color;
+    }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [0.0, 0.5, 0.0],
-        color: [1.0, 0.0, 0.0],
-    },
-    Vertex {
-        position: [-0.5, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
-    },
-    Vertex {
-        position: [0.5, -0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
-    },
-];
+// const VERTICES: &[Vertex] = &[
+//     Vertex {
+//         position: [0.0, 0.5, 0.0],
+//         color: [1.0, 0.0, 0.0],
+//     },
+//     Vertex {
+//         position: [-0.5, -0.5, 0.0],
+//         color: [0.0, 1.0, 0.0],
+//     },
+//     Vertex {
+//         position: [0.5, -0.5, 0.0],
+//         color: [0.0, 0.0, 1.0],
+//     },
+// ];
 
-const INDICES: &[u16] = &[0, 1, 2];
+// const INDICES: &[u16] = &[0, 1, 2];
 
-pub struct Pipeline {
-    render_pipeline: wgpu::RenderPipeline,
+struct Buffer {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
 }
 
+pub struct Pipeline {
+    render_pipeline: wgpu::RenderPipeline,
+    buffer: Option<Buffer>,
+    background_color: wgpu::Color,
+}
+
 impl Pipeline {
+
+    pub fn background(&self) -> wgpu::Color {
+        self.background_color
+    }
+
+    pub fn set_background(&mut self, color: wgpu::Color) {
+        self.background_color = color;
+    }
 
     pub fn init(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Result<Self, Box<dyn Error>> {
 
@@ -108,53 +167,72 @@ impl Pipeline {
             multiview: None,
         });
 
+        Ok(Self {
+            render_pipeline,
+            buffer: None,
+            background_color: wgpu::Color {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 1.0,
+            }
+        })
+    }
+
+    pub fn load_buffer(&mut self, device: &wgpu::Device, vertices: &[Vertex], indices: &[u16]) {
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
+            contents: bytemuck::cast_slice(vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
+            contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX,
         });
+        
+        let num_indices = indices.len() as u32;
 
-        let num_indices = INDICES.len() as u32;
-
-        Ok(Self {
-            render_pipeline,
+        self.buffer = Some(Buffer {
             vertex_buffer,
             index_buffer,
             num_indices,
-        })
+        });
     }
 
     pub fn render(&self,view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
         
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color{
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
-                        a: 1.0,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                }
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
+        // Draw the buffer if it exists
+        if let Some(buffer) = &self.buffer {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.background_color),
+                        store: wgpu::StoreOp::Store,
+                    }
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
 
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            let vertex_buffer = &buffer.vertex_buffer;
+            let index_buffer = &buffer.index_buffer;
+            let num_indices = buffer.num_indices;
+    
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..num_indices, 0, 0..1);
+        } else {
+            eprintln!("No buffer to render");
+        }
+        
+        
     }
 }

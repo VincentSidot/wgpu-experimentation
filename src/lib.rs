@@ -3,14 +3,19 @@ mod graphics;
 
 use std::{cell::RefCell, error::Error, rc::Rc, time::Duration};
 
-use debug::widget::Label;
+use debug::ColorRef;
 
 #[derive(Debug)]
 pub enum WindowSize {
     FullScreen,
     FullScreenBorderless,
     Windowed(u32, u32),
-    Default,
+}
+
+impl Default for WindowSize {
+    fn default() -> Self {
+        WindowSize::Windowed(800, 600)
+    }
 }
 
 struct GraphicalProcessUnit<'a> {
@@ -39,7 +44,9 @@ struct App<'a> {
     debug_window: debug::Debug,
 
 
-
+    // Fullscreen
+    is_fullscreen: bool,
+    last_size: (u32, u32),
 
     // Winit stuff
     window: &'a winit::window::Window,
@@ -55,16 +62,7 @@ macro_rules! elapsed_handler {
             $item.borrow_mut().set(elapsed);
             ret
         }
-    };
-    ($item:expr, $block:expr, $post:expr) => {
-        {
-            let now = std::time::Instant::now();
-            let ret = $block;
-            let elapsed = now.elapsed();
-            $item.borrow_mut().set($post(elapsed));
-            ret
-        }
-    };
+    }
 }
 
 impl<'a> App<'a> {
@@ -148,6 +146,8 @@ impl<'a> App<'a> {
             debug_window,
             window,
             size,
+            is_fullscreen: false,
+            last_size: (0, 0),
         })
     }
 
@@ -157,6 +157,14 @@ impl<'a> App<'a> {
 
     pub fn debug(&mut self) -> &mut debug::Debug {
         &mut self.debug_window
+    }
+
+    pub fn gpu(&self) -> &GraphicalProcessUnit {
+        &self.gpu
+    }
+
+    pub fn load_buffer(&mut self, vertices: &[graphics::Vertex], indices: &[u16]) {
+        self.pipeline.load_buffer(&self.gpu.device, vertices, indices);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -177,8 +185,8 @@ impl<'a> App<'a> {
 
     fn render<W, D>(
         &mut self,
-        wgpu_time: Rc<RefCell<Label<Duration, W>>>,
-        debug_time: Rc<RefCell<Label<Duration, D>>>,
+        wgpu_time: Rc<RefCell<debug::widget::Label<Duration, W>>>,
+        debug_time: Rc<RefCell<debug::widget::Label<Duration, D>>>,
     ) -> Result<(), wgpu::SurfaceError>
     where 
         W: Fn(&Duration) -> String,
@@ -239,6 +247,48 @@ impl<'a> App<'a> {
         Ok(())
     }
 
+    fn set_size(&mut self, size: &WindowSize) {
+        match size {
+            WindowSize::FullScreen => {
+                let monitor = self.window.current_monitor().ok_or("No monitor found!").unwrap();
+                self.window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(
+                    monitor.video_modes().next().ok_or("No video mode found!").unwrap()
+                )));
+                self.is_fullscreen = true;
+            }
+            WindowSize::FullScreenBorderless => {
+                let monitor = self.window.current_monitor();
+                self.window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(
+                    monitor
+                )));
+                self.is_fullscreen = true;
+            }
+            WindowSize::Windowed(width, height) => {
+                let size = winit::dpi::PhysicalSize::new(*width, *height);
+                self.window.set_fullscreen(None);
+                if self.window.request_inner_size(size).is_some() {
+                    self.resize(size);
+                }
+                self.last_size = (*width, *height);
+                self.is_fullscreen = false;
+            }
+        }
+    }
+
+    fn fullscreen(&self) -> bool {
+        self.is_fullscreen
+    }
+
+    fn set_fullscreen(&mut self, value: bool) {
+        self.is_fullscreen = value;
+        if value {
+            self.set_size(&WindowSize::FullScreen);
+        } else {
+            let (width, height) = self.last_size;
+            self.set_size(&WindowSize::Windowed(width, height));
+        }
+    }
+
 }
 
 pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
@@ -265,34 +315,87 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
         |v| format!("FPS: {}", v)
     );
 
+    let color = debug::widget::ColorPicker::new(
+        debug::RGBA {
+            red: 0.1,
+            green: 0.2,
+            blue: 0.3,
+            alpha: 1.0,
+        },
+        "Background Color" 
+    );
+
+    let color1 = debug::widget::ColorPicker::new(
+        debug::widget::color::RGB {
+            red: 1.0,
+            green: 0.0,
+            blue: 0.0,
+        },
+        "Color 1" 
+    );
+
+    let color2 = debug::widget::ColorPicker::new(
+        debug::RGB {
+            red: 0.0,
+            green: 1.0,
+            blue: 0.0,
+        },
+        "Color 2" 
+    );
+
+    let color3 = debug::widget::ColorPicker::new(
+        debug::RGB {
+            red: 0.0,
+            green: 0.0,
+            blue: 1.0,
+        },
+        "Color 3" 
+    );
+
+    let mut vertices = vec![
+        graphics::Vertex::new(
+            [0.0, 0.5, 0.0],
+            color1.borrow().get().into_rgb()
+        ),
+        graphics::Vertex::new(
+            [-0.5, -0.5, 0.0],
+            color2.borrow().get().into_rgb()
+        ),
+        graphics::Vertex::new(
+            [0.5, -0.5, 0.0],
+            color3.borrow().get().into_rgb()
+        ),
+    ];
+
+    println!("{:?}", vertices);
+
+    let indices = vec![0, 1, 2];
+
     let mut app = App::new(&window).await?;
 
-    match size {
-        WindowSize::FullScreen => {
-            let monitor = window.current_monitor().ok_or("No monitor found!")?;
-            window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(
-                monitor.video_modes().next().ok_or("No video mode found!")?
-            )));
-        }
-        WindowSize::FullScreenBorderless => {
-            let monitor = window.current_monitor();
-            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(
-                monitor
-            )));
-        }
-        WindowSize::Windowed(width, height) => {
-            let size = winit::dpi::PhysicalSize::new(*width, *height);
-            if window.request_inner_size(size).is_some() {
-                app.resize(size);
+    app.set_size(size);
+    app.pipeline.set_background(
+        {
+            let color = color.borrow().get().into_rgba();
+            wgpu::Color {
+                r: color[0] as f64,
+                g: color[1] as f64,
+                b: color[2] as f64,
+                a: color[3] as f64,
             }
         }
-        WindowSize::Default => {} // Do nothing
-    }
+    );
 
     app.debug().add_debug_item(frame_per_second.clone());
     app.debug().add_debug_item(update_time.clone());
     app.debug().add_debug_item(wgpu_redraw.clone());
     app.debug().add_debug_item(debug_redraw.clone());
+    app.debug().add_debug_item(color.clone());
+    app.debug().add_debug_item(color1.clone());
+    app.debug().add_debug_item(color2.clone());
+    app.debug().add_debug_item(color3.clone());
+
+    let mut last_instant = std::time::Instant::now();
 
     let _ = event_loop.run(move |event, ewlt| {
         match event {
@@ -301,51 +404,92 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
                 window_id,
             } if window_id == app.window().id() => {
                 if !app.input(event) {
-                    elapsed_handler!(
-                        frame_per_second,
-                        {
-                            match event {
-                                winit::event::WindowEvent::CloseRequested | winit::event::WindowEvent::KeyboardInput {
-                                    event: winit::event::KeyEvent {
-                                        logical_key: winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape),
-                                        ..
-                                    },
-                                    ..
-                                } => ewlt.exit(),
-                                winit::event::WindowEvent::Resized(physical_size) => {
-                                    app.debug().info(&format!("Resized to {:?}", physical_size));
-                                    app.resize(*physical_size);
+                    match event {
+                        winit::event::WindowEvent::KeyboardInput {
+                            event: winit::event::KeyEvent {
+                                logical_key: key,
+                                state: winit::event::ElementState::Released, // Trigger only once
+                                ..
+                            },
+                            ..
+                        } => {
+                            match key {
+                                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => ewlt.exit(),
+                                winit::keyboard::Key::Named(winit::keyboard::NamedKey::F11) => {
+                                    app.debug().info("Toggling fullscreen");
+                                    app.set_fullscreen(!app.fullscreen());
                                 }
-                                winit::event::WindowEvent::RedrawRequested => {
-                                    elapsed_handler!(
-                                        update_time,
-                                        app.update()
-                                    );
-                                    match app.render(
-                                        wgpu_redraw.clone(),
-                                        debug_redraw.clone()
-                                    ) {
-                                        Ok(_) => {}
-                                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                                            app.resize(app.size);
-                                        }
-                                        Err(wgpu::SurfaceError::OutOfMemory) => {
-                                            println!("Out of memory! (peepoSad)");
-                                            ewlt.exit();
-                                        }
-                                        Err(wgpu::SurfaceError::Timeout) => {
-                                            println!("Timeout! (peepoSad)");
-                                        }
-                                    }
+
+                                _ => {}
+
+                            }
+
+                        }
+                        winit::event::WindowEvent::CloseRequested => ewlt.exit(),
+                        winit::event::WindowEvent::Resized(physical_size) => {
+                            app.resize(*physical_size);
+                        }
+                        winit::event::WindowEvent::RedrawRequested => {
+                            elapsed_handler!(
+                                update_time,
+                                app.update()
+                            );
+                            match app.render(
+                                wgpu_redraw.clone(),
+                                debug_redraw.clone()
+                            ) {
+                                Ok(_) => {}
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                    app.resize(app.size);
                                 }
-                                _ => {
-                                    // Nothing to do yet
+                                Err(wgpu::SurfaceError::OutOfMemory) => {
+                                    println!("Out of memory! (peepoSad)");
+                                    ewlt.exit();
                                 }
-                            };
-                            app.debug_renderer.handle_input(app.window, event)
-                        },
-                        |elapsed: std::time::Duration| 1_000_000_000 / elapsed.as_nanos()
-                    );
+                                Err(wgpu::SurfaceError::Timeout) => {
+                                    println!("Timeout! (peepoSad)");
+                                }
+                            }
+                        }
+                        _ => {
+                            // Nothing to do yet
+                        }
+                    };
+                    app.debug_renderer.handle_input(app.window, event);
+
+                    // Fetch new color values
+                    {
+                        let color = color.borrow().get().into_rgba();
+                        let color1 = color1.borrow().get().into_rgb();
+                        let color2 = color2.borrow().get().into_rgb();
+                        let color3 = color3.borrow().get().into_rgb();
+
+                        app.pipeline.set_background(
+                            wgpu::Color {
+                                r: color[0] as f64,
+                                g: color[1] as f64,
+                                b: color[2] as f64,
+                                a: color[3] as f64,
+                            }
+                        );
+
+                        vertices[0].set_color(color1);
+                        vertices[1].set_color(color2);
+                        vertices[2].set_color(color3);
+
+                        app.load_buffer(
+                            &vertices,
+                            &indices
+                        )
+                    }
+
+                    let time = std::time::Instant::now();
+                    let duration = time.duration_since(last_instant);
+                    last_instant = time;
+
+                    let fps = 1_000_000_000 / duration.as_nanos();
+                    frame_per_second.borrow_mut().set(fps);
+
                 }
             }
             _ => {

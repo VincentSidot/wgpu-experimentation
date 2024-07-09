@@ -94,7 +94,7 @@ impl Debug {
                 for item in self.debug_items.iter_mut() {
                     item.borrow_mut().draw(ui, &mut self.debug_console);
                 }
-        });
+            });
 
         if !self.debug_console.is_empty() {
             egui::Window::new("Debug Console")

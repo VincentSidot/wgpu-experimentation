@@ -28,10 +28,10 @@ fn main() {
             WindowSize::Windowed(width, height)
         
         } else {
-            WindowSize::Default
+            WindowSize::default()
         }
     } else {
-        WindowSize::Default
+        WindowSize::default()
     };
 
     println!("Size: {:?}", size);
