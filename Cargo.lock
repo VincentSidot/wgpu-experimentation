@@ -1568,6 +1568,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "log",
  "pollster",
  "regex",
  "wgpu",

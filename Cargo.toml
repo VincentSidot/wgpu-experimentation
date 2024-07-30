@@ -14,3 +14,4 @@ wgpu = "0.19.4"
 winit = "0.29.15"
 bytemuck = { version = "1.14", features = ["derive"] }
 regex = "1.10.5"
+log = "0.4.14"

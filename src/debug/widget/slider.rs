@@ -2,7 +2,6 @@ use std::{cell::RefCell, ops::RangeInclusive, rc::Rc};
 
 use super::debug::DebugItem;
 
-
 pub struct Slider<T> {
     name: String,
     value: T,
@@ -15,7 +14,7 @@ impl<T> Slider<T> {
         Rc::new(RefCell::new(Self {
             name: name.to_string(),
             value,
-            range
+            range,
         }))
     }
 
@@ -30,15 +29,10 @@ impl<T> Slider<T> {
 
 impl<T> DebugItem for Slider<T>
 where
-    T: egui::emath::Numeric
+    T: egui::emath::Numeric,
 {
-    fn draw(&mut self, ui: &mut egui::Ui, _console: &mut Vec<crate::debug::gui::DebugMessage>) {
+    fn draw(&mut self, ui: &mut egui::Ui) {
         // Draw the slider
-        ui.add(
-            egui::Slider::new(
-                &mut self.value,
-                self.range.clone()
-            ).text(&self.name)
-        );
+        ui.add(egui::Slider::new(&mut self.value, self.range.clone()).text(&self.name));
     }
 }

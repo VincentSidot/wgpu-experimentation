@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use super::debug::DebugItem;
 
-pub trait ColorRef{
+pub trait ColorRef {
     fn into_rgba(&self) -> [f32; 4];
     fn into_rgb(&self) -> [f32; 3];
 }
@@ -14,7 +14,7 @@ macro_rules! color {
         $into_rgba: expr,
         $into_rgb: expr,
     ) => {
-        impl ColorRef for $s{
+        impl ColorRef for $s {
             fn into_rgba(&self) -> [f32; 4] {
                 let $reference = self;
                 $into_rgba
@@ -29,49 +29,48 @@ macro_rules! color {
 }
 
 #[derive(Debug, Default)]
-pub struct RGB{
-    pub red: f32,
-    pub green: f32,
-    pub blue: f32
-}
-
-#[derive(Debug, Default)]
-pub struct RGBA{
+pub struct RGB {
     pub red: f32,
     pub green: f32,
     pub blue: f32,
-    pub alpha: f32
 }
 
 #[derive(Debug, Default)]
-pub struct sRGB{
-    pub red: u8,
-    pub green: u8,
-    pub blue: u8
+pub struct RGBA {
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+    pub alpha: f32,
 }
 
 #[derive(Debug, Default)]
-pub struct sRGBA{
+pub struct sRGB {
     pub red: u8,
     pub green: u8,
     pub blue: u8,
-    pub alpha: u8
 }
 
+#[derive(Debug, Default)]
+pub struct sRGBA {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub alpha: u8,
+}
 
-color!{
+color! {
     RGB,
     reference,
     [reference.red, reference.green, reference.blue, 1.0],
     [reference.red, reference.green, reference.blue],
 }
-color!{
+color! {
     RGBA,
     reference,
     [reference.red, reference.green, reference.blue, reference.alpha],
     [reference.red, reference.green, reference.blue],
 }
-color!{
+color! {
     sRGB,
     reference,
     [
@@ -86,7 +85,7 @@ color!{
         reference.blue as f32 / 255.0,
     ],
 }
-color!{
+color! {
     sRGBA,
     reference,
     [
@@ -107,11 +106,13 @@ pub struct ColorPicker<C> {
     format: String,
 }
 
-impl<C> ColorPicker<C> where
+impl<C> ColorPicker<C>
+where
     C: ColorRef,
 {
-    pub fn new<S>(reference: C, format: S) -> Rc<RefCell<Self>> where 
-        S: ToString
+    pub fn new<S>(reference: C, format: S) -> Rc<RefCell<Self>>
+    where
+        S: ToString,
     {
         Rc::new(RefCell::new(Self {
             reference,
@@ -130,7 +131,6 @@ impl<C> ColorPicker<C> where
     pub fn as_text(&self) -> &str {
         &self.format
     }
-
 }
 
 macro_rules! color_debug {
@@ -142,10 +142,8 @@ macro_rules! color_debug {
         $convert_bak: expr,
         $fun: expr,
     ) => {
-        impl DebugItem for ColorPicker<$type>
-        {
-            fn draw(&mut self, ui: &mut egui::Ui, _console: &mut Vec<crate::debug::gui::DebugMessage>) {
-
+        impl DebugItem for ColorPicker<$type> {
+            fn draw(&mut self, ui: &mut egui::Ui) {
                 let $reference = &self.reference;
 
                 let mut $value = $convert;
@@ -168,14 +166,12 @@ macro_rules! color_debug {
         $fun: expr,
         $alpha: expr,
     ) => {
-        impl DebugItem for ColorPicker<$type>
-        {
-            fn draw(&mut self, ui: &mut egui::Ui, _console: &mut Vec<crate::debug::gui::DebugMessage>) {
-
+        impl DebugItem for ColorPicker<$type> {
+            fn draw(&mut self, ui: &mut egui::Ui) {
                 let $reference = &self.reference;
 
                 let mut $value = $convert;
-        
+
                 ui.horizontal(|ui| {
                     ui.label(self.as_text());
                     $fun(ui, &mut $value, $alpha);
@@ -187,7 +183,7 @@ macro_rules! color_debug {
     };
 }
 
-color_debug!{
+color_debug! {
     RGB,
     reference,
     value,
@@ -200,7 +196,7 @@ color_debug!{
     egui::widgets::color_picker::color_edit_button_rgb,
 }
 
-color_debug!{
+color_debug! {
     RGBA,
     reference,
     value,
@@ -220,7 +216,7 @@ color_debug!{
     egui::widgets::color_picker::Alpha::OnlyBlend,
 }
 
-color_debug!{
+color_debug! {
     sRGB,
     reference,
     value,
@@ -233,7 +229,7 @@ color_debug!{
     egui::widgets::color_picker::color_edit_button_srgb,
 }
 
-color_debug!{
+color_debug! {
     sRGBA,
     reference,
     value,

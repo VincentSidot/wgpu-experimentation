@@ -2,7 +2,6 @@ use std::error::Error;
 
 use wgpu::util::DeviceExt;
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -12,9 +11,8 @@ pub struct Vertex {
 
 /// Implement the Vertex struct
 impl Vertex {
-
     /// Describes the layout of the Vertex struct
-    /// 
+    ///
     /// This is used to tell the GPU how to interpret the data in the vertex buffer
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
@@ -30,16 +28,13 @@ impl Vertex {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
-                }
-            ]
+                },
+            ],
         }
     }
 
     pub fn new(position: [f32; 3], color: [f32; 3]) -> Self {
-        Self {
-            position,
-            color,
-        }
+        Self { position, color }
     }
 
     pub fn with_position(&mut self, position: [f32; 3]) -> &mut Self {
@@ -107,7 +102,6 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-
     pub fn background(&self) -> wgpu::Color {
         self.background_color
     }
@@ -116,18 +110,21 @@ impl Pipeline {
         self.background_color = color;
     }
 
-    pub fn init(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Result<Self, Box<dyn Error>> {
-
+    pub fn init(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> Result<Self, Box<dyn Error>> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
         });
 
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -137,16 +134,16 @@ impl Pipeline {
                 entry_point: "vs_main",
                 buffers: &[Vertex::desc()],
             },
-            fragment: Some( wgpu::FragmentState {
+            fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE
+                        alpha: wgpu::BlendComponent::REPLACE,
                     }),
-                    write_mask: wgpu::ColorWrites::ALL
+                    write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
             primitive: wgpu::PrimitiveState {
@@ -175,12 +172,11 @@ impl Pipeline {
                 g: 0.2,
                 b: 0.3,
                 a: 1.0,
-            }
+            },
         })
     }
 
     pub fn load_buffer(&mut self, device: &wgpu::Device, vertices: &[Vertex], indices: &[u16]) {
-
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(vertices),
@@ -192,7 +188,7 @@ impl Pipeline {
             contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX,
         });
-        
+
         let num_indices = indices.len() as u32;
 
         self.buffer = Some(Buffer {
@@ -202,8 +198,7 @@ impl Pipeline {
         });
     }
 
-    pub fn render(&self,view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
-        
+    pub fn render(&self, view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
         // Draw the buffer if it exists
         if let Some(buffer) = &self.buffer {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -214,7 +209,7 @@ impl Pipeline {
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(self.background_color),
                         store: wgpu::StoreOp::Store,
-                    }
+                    },
                 })],
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
@@ -224,7 +219,7 @@ impl Pipeline {
             let vertex_buffer = &buffer.vertex_buffer;
             let index_buffer = &buffer.index_buffer;
             let num_indices = buffer.num_indices;
-    
+
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -232,7 +227,5 @@ impl Pipeline {
         } else {
             eprintln!("No buffer to render");
         }
-        
-        
     }
 }

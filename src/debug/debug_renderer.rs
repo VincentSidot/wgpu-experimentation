@@ -8,7 +8,7 @@ use crate::{DrawPipeline, GraphicalProcessUnit};
 pub struct DebugRenderer {
     pub context: Context,
     state: State,
-    renderer: Renderer
+    renderer: Renderer,
 }
 
 impl DebugRenderer {
@@ -33,13 +33,7 @@ impl DebugRenderer {
 
         egui_context.set_visuals(visuals);
 
-        let egui_state = egui_winit::State::new(
-            egui_context.clone(),
-            id,
-            &window,
-            None,
-            None
-        );
+        let egui_state = egui_winit::State::new(egui_context.clone(), id, &window, None, None);
 
         let egui_renderer = egui_wgpu::Renderer::new(
             device,
@@ -51,11 +45,15 @@ impl DebugRenderer {
         DebugRenderer {
             context: egui_context,
             state: egui_state,
-            renderer: egui_renderer
+            renderer: egui_renderer,
         }
     }
 
-    pub fn handle_input(&mut self, window: &winit::window::Window, event: &winit::event::WindowEvent) {
+    pub fn handle_input(
+        &mut self,
+        window: &winit::window::Window,
+        event: &winit::event::WindowEvent,
+    ) {
         let _ = self.state.on_window_event(window, event);
     }
 
@@ -67,18 +65,12 @@ impl DebugRenderer {
     ) {
         let raw_input = self.state.take_egui_input(pipeline.window);
 
-        let full_output = self.context.run(
-            raw_input,
-            |_ui| {
-                run_ui(&self.context);
-            }
-        );
+        let full_output = self.context.run(raw_input, |_ui| {
+            run_ui(&self.context);
+        });
 
         self.state
-            .handle_platform_output(
-                pipeline.window,
-                full_output.platform_output
-            );
+            .handle_platform_output(pipeline.window, full_output.platform_output);
 
         let tris = self
             .context
@@ -89,43 +81,36 @@ impl DebugRenderer {
                 .update_texture(&gpu.device, &gpu.queue, *id, image_delta);
         }
 
-        self.renderer
-            .update_buffers(
-                &gpu.device,
-                &gpu.queue,
-                pipeline.encoder,
-                &tris,
-                pipeline.screen
-            );
+        self.renderer.update_buffers(
+            &gpu.device,
+            &gpu.queue,
+            pipeline.encoder,
+            &tris,
+            pipeline.screen,
+        );
 
-        let mut rpass = pipeline.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: pipeline.view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }
-            })],
-            depth_stencil_attachment: None,
-            label: Some("Debug View Render Pass"),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+        let mut rpass = pipeline
+            .encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: pipeline.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                label: Some("Debug View Render Pass"),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
 
-        self.renderer
-            .render(
-                &mut rpass,
-                &tris,
-                pipeline.screen
-            );
+        self.renderer.render(&mut rpass, &tris, pipeline.screen);
         drop(rpass);
 
         for x in &full_output.textures_delta.free {
-            self.renderer
-                .free_texture(x)
+            self.renderer.free_texture(x)
         }
     }
-
-
 }
