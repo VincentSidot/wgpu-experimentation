@@ -65,7 +65,9 @@ macro_rules! elapsed_handler {
 }
 
 impl<'a> App<'a> {
-    async fn new(window: &'a winit::window::Window) -> Result<Self, Box<dyn Error>> {
+    async fn new(
+        window: &'a winit::window::Window,
+    ) -> Result<Self, Box<dyn Error>> {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -116,7 +118,8 @@ impl<'a> App<'a> {
         surface.configure(&device, &config);
 
         // Setup the debug renderer
-        let debug_renderer = debug::DebugRenderer::new(&device, config.format, None, 1, window);
+        let debug_renderer =
+            debug::DebugRenderer::new(&device, config.format, None, 1, window);
 
         // Setup the debug window
         let debug_window = debug::Debug::init();
@@ -149,11 +152,11 @@ impl<'a> App<'a> {
         &mut self.debug_window
     }
 
-    pub fn gpu(&self) -> &GraphicalProcessUnit {
-        &self.gpu
-    }
-
-    pub fn load_buffer(&mut self, vertices: &[graphics::Vertex], indices: &[u16]) {
+    pub fn load_buffer(
+        &mut self,
+        vertices: &[graphics::Vertex],
+        indices: &[u16],
+    ) {
         self.pipeline
             .load_buffer(&self.gpu.device, vertices, indices);
     }
@@ -197,12 +200,11 @@ impl<'a> App<'a> {
             array_layer_count: None,
         });
 
-        let mut encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = self.gpu.device.create_command_encoder(
+            &wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
-            });
+            },
+        );
 
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [self.gpu.config.width, self.gpu.config.height],
@@ -239,20 +241,22 @@ impl<'a> App<'a> {
                     .current_monitor()
                     .ok_or("No monitor found!")
                     .unwrap();
-                self.window
-                    .set_fullscreen(Some(winit::window::Fullscreen::Exclusive(
+                self.window.set_fullscreen(Some(
+                    winit::window::Fullscreen::Exclusive(
                         monitor
                             .video_modes()
                             .next()
                             .ok_or("No video mode found!")
                             .unwrap(),
-                    )));
+                    ),
+                ));
                 self.is_fullscreen = true;
             }
             WindowSize::FullScreenBorderless => {
                 let monitor = self.window.current_monitor();
-                self.window
-                    .set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
+                self.window.set_fullscreen(Some(
+                    winit::window::Fullscreen::Borderless(monitor),
+                ));
                 self.is_fullscreen = true;
             }
             WindowSize::Windowed(width, height) => {
@@ -286,19 +290,23 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     let window = winit::window::WindowBuilder::new().build(&event_loop)?;
 
-    let update_time = debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
-        format!("Update time: {:?}", v)
-    });
+    let update_time =
+        debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
+            format!("Update time: {:?}", v)
+        });
 
-    let wgpu_redraw = debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
-        format!("WGPU Redraw time: {:?}", v)
-    });
+    let wgpu_redraw =
+        debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
+            format!("WGPU Redraw time: {:?}", v)
+        });
 
-    let debug_redraw = debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
-        format!("Debug Redraw time: {:?}", v)
-    });
+    let debug_redraw =
+        debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
+            format!("Debug Redraw time: {:?}", v)
+        });
 
-    let frame_per_second = debug::widget::Label::new(0, |v| format!("FPS: {}", v));
+    let frame_per_second =
+        debug::widget::Label::new(0, |v| format!("FPS: {}", v));
 
     let color = debug::widget::ColorPicker::new(
         debug::RGBA {
@@ -338,9 +346,18 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
     );
 
     let mut vertices = vec![
-        graphics::Vertex::new([0.0, 0.5, 0.0], color1.borrow().get().into_rgb()),
-        graphics::Vertex::new([-0.5, -0.5, 0.0], color2.borrow().get().into_rgb()),
-        graphics::Vertex::new([0.5, -0.5, 0.0], color3.borrow().get().into_rgb()),
+        graphics::Vertex::new(
+            [0.0, 0.5, 0.0],
+            color1.borrow().get().into_rgb(),
+        ),
+        graphics::Vertex::new(
+            [-0.5, -0.5, 0.0],
+            color2.borrow().get().into_rgb(),
+        ),
+        graphics::Vertex::new(
+            [0.5, -0.5, 0.0],
+            color3.borrow().get().into_rgb(),
+        ),
     ];
 
     log::trace!("Vertices: {:?}", vertices);
@@ -388,25 +405,35 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
                                 },
                             ..
                         } => match key {
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) => {
-                                ewlt.exit()
-                            }
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::F11) => {
+                            winit::keyboard::Key::Named(
+                                winit::keyboard::NamedKey::Escape,
+                            ) => ewlt.exit(),
+                            winit::keyboard::Key::Named(
+                                winit::keyboard::NamedKey::F11,
+                            ) => {
                                 log::info!("Toggling fullscreen");
                                 app.set_fullscreen(!app.fullscreen());
                             }
 
                             _ => {}
                         },
-                        winit::event::WindowEvent::CloseRequested => ewlt.exit(),
+                        winit::event::WindowEvent::CloseRequested => {
+                            ewlt.exit()
+                        }
                         winit::event::WindowEvent::Resized(physical_size) => {
                             app.resize(*physical_size);
                         }
                         winit::event::WindowEvent::RedrawRequested => {
                             elapsed_handler!(update_time, app.update());
-                            match app.render(wgpu_redraw.clone(), debug_redraw.clone()) {
+                            match app.render(
+                                wgpu_redraw.clone(),
+                                debug_redraw.clone(),
+                            ) {
                                 Ok(_) => {}
-                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                Err(
+                                    wgpu::SurfaceError::Lost
+                                    | wgpu::SurfaceError::Outdated,
+                                ) => {
                                     app.resize(app.size);
                                 }
                                 Err(wgpu::SurfaceError::OutOfMemory) => {
