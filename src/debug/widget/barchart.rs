@@ -9,56 +9,56 @@ use std::{cell::RefCell, rc::Rc};
 
 pub struct BarChart<const N: usize, const K: usize> {
     data: CyclicArray<N, [f32; K]>,
-    label: [String; K],
+    labels: [String; K],
+    colors: [egui::Color32; K],
     max_value: f32,
     min_value: f32,
 }
 
-const BARGRAPH_HEIGHT: f32 = 40.0;
+const BARGRAPH_HEIGHT: f32 = 60.0;
 const BARGRAPH_WIDTH: f32 = 200.0;
-const BAR_COLORS: [egui::Color32; 8] = [
-    egui::Color32::YELLOW,
-    egui::Color32::RED,
-    egui::Color32::GREEN,
-    egui::Color32::BLUE,
-    egui::Color32::WHITE,
-    egui::Color32::BROWN,
-    egui::Color32::KHAKI,
-    egui::Color32::GRAY,
-];
 
 impl<const N: usize, const K: usize> BarChart<N, K> {
-    pub fn new(data: [[f32; K]; N], labels: [String; K]) -> Rc<RefCell<Self>> {
+    pub fn new(
+        data: [[f32; K]; N],
+        labels: [String; K],
+        colors: [egui::Color32; K],
+    ) -> Rc<RefCell<Self>> {
         let mut max_value = f32::MIN;
-        let mut min_value = f32::MAX;
 
         for value in data.iter() {
             let value = value.iter().fold(0.0, |acc, &x| acc + x);
             if value > max_value {
                 max_value = value;
             }
-            if value < min_value {
-                min_value = value;
-            }
         }
 
         Rc::new(RefCell::new(Self {
             data: CyclicArray::new(data),
-            label: labels,
+            labels,
+            colors,
             max_value,
-            min_value,
+            min_value: 0.0,
         }))
     }
 
     pub fn push(&mut self, values: [f32; K]) {
-        self.data.push(values);
+        let previous_values = self.data.push(values);
         let value = values.iter().fold(0.0, |acc, &x| acc + x);
 
-        if value > self.max_value {
+        let previous_value =
+            previous_values.iter().fold(0.0, |acc, &x| acc + x);
+
+        if previous_value == self.max_value {
+            self.max_value = f32::MIN;
+            for value in self.data.iter() {
+                let value = value.iter().fold(0.0, |acc, &x| acc + x);
+                if value > self.max_value {
+                    self.max_value = value;
+                }
+            }
+        } else if value > self.max_value {
             self.max_value = value;
-        }
-        if value < self.min_value {
-            self.min_value = value;
         }
     }
 }
@@ -68,15 +68,18 @@ impl<const N: usize, const K: usize> DebugItem for BarChart<N, K> {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    for (i, label) in self.label.iter().enumerate() {
-                        ui.add(egui::Label::new(
-                            RichText::new(label.clone()).background_color(
-                                BAR_COLORS[i % BAR_COLORS.len()],
-                            ),
-                        ));
+                    for (i, label) in self.labels.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(
+                                RichText::new("   ")
+                                    .background_color(self.colors[i]),
+                            ));
+                            ui.label(label.clone());
+                        });
                     }
                 });
                 ui.separator();
+
                 let (rect, _) = ui.allocate_at_least(
                     Vec2::new(BARGRAPH_WIDTH, BARGRAPH_HEIGHT),
                     Sense::hover(),
@@ -90,41 +93,40 @@ impl<const N: usize, const K: usize> DebugItem for BarChart<N, K> {
                 ))];
 
                 let rect = rect.shrink(4.0);
-                let half_bar_width = rect.width() / N as f32 * 0.5;
+                let bar_width = rect.width() / N as f32;
 
                 for (i, values) in self.data.iter().enumerate() {
-                    let x =
-                        remap(i as f32, 0.0..=(N as f32 - 1.0), rect.x_range());
-                    let x_min = ui.painter().round_to_pixel(x - half_bar_width);
-                    let x_max = ui.painter().round_to_pixel(x + half_bar_width);
+                    let x = remap(i as f32, 0.0..=N as f32, rect.x_range());
+                    let x_min = ui.painter().round_to_pixel(x);
+                    let x_max = ui.painter().round_to_pixel(x + bar_width);
                     let mut last_height = rect.bottom();
                     for (j, value) in values.iter().enumerate() {
                         let y = remap_clamp(
-                            *value / K as f32,
+                            *value,
                             self.min_value..=self.max_value,
-                            rect.bottom_up_range(),
+                            0.0..=(rect.min.y - rect.max.y).abs(),
                         );
+
                         let bar = Rect {
-                            min: pos2(x_min, y),
+                            min: pos2(x_min, last_height - y),
                             max: pos2(x_max, last_height),
                         };
 
-                        let fill_color = BAR_COLORS[j % BAR_COLORS.len()];
-
-                        log::trace!("Bar: {:?}", bar);
+                        let fill_color = self.colors[j % self.colors.len()];
 
                         shapes.push(Shape::Rect(RectShape::new(
                             bar,
                             0.0,
                             fill_color,
-                            ui.style().noninteractive().fg_stroke,
+                            egui::Stroke::NONE,
                         )));
 
-                        last_height = y;
+                        last_height -= y;
                     }
                 }
 
                 self.data.rotate(1);
+                ui.painter().extend(shapes);
             });
         });
     }

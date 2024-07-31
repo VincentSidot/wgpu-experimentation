@@ -1,9 +1,10 @@
 mod debug;
 mod graphics;
+mod utils;
 
 pub use debug::widget::Logger;
 
-use std::{cell::RefCell, error::Error, rc::Rc, time::Duration};
+use std::{error::Error, time::Duration};
 
 use debug::ColorRef;
 
@@ -55,11 +56,11 @@ struct App<'a> {
 }
 
 macro_rules! elapsed_handler {
-    ($item:expr, $block:expr) => {{
+    ($item:expr => $block:expr) => {{
         let now = std::time::Instant::now();
         let ret = $block;
         let elapsed = now.elapsed();
-        $item.borrow_mut().set(elapsed);
+        $item = elapsed;
         ret
     }};
 }
@@ -79,7 +80,7 @@ impl<'a> App<'a> {
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
@@ -152,6 +153,10 @@ impl<'a> App<'a> {
         &mut self.debug_window
     }
 
+    pub fn gpu(&self) -> &GraphicalProcessUnit {
+        &self.gpu
+    }
+
     pub fn load_buffer(
         &mut self,
         vertices: &[graphics::Vertex],
@@ -179,15 +184,11 @@ impl<'a> App<'a> {
 
     fn update(&mut self) {}
 
-    fn render<W, D>(
+    fn render(
         &mut self,
-        wgpu_time: Rc<RefCell<debug::widget::Label<Duration, W>>>,
-        debug_time: Rc<RefCell<debug::widget::Label<Duration, D>>>,
-    ) -> Result<(), wgpu::SurfaceError>
-    where
-        W: Fn(&Duration) -> String,
-        D: Fn(&Duration) -> String,
-    {
+        wgpu_time: &mut Duration,
+        debug_time: &mut Duration,
+    ) -> Result<(), wgpu::SurfaceError> {
         let output = self.gpu.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
@@ -211,7 +212,7 @@ impl<'a> App<'a> {
             pixels_per_point: self.window().scale_factor() as f32,
         };
 
-        elapsed_handler!(wgpu_time, self.pipeline.render(&view, &mut encoder));
+        elapsed_handler!(*wgpu_time => self.pipeline.render(&view, &mut encoder));
 
         let draw_pipeline = DrawPipeline {
             encoder: &mut encoder,
@@ -221,7 +222,7 @@ impl<'a> App<'a> {
         };
 
         elapsed_handler!(
-            debug_time,
+            *debug_time =>
             self.debug_renderer.draw(&self.gpu, draw_pipeline, |ui| {
                 self.debug_window.run_ui(ui);
             })
@@ -290,23 +291,32 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
     let event_loop = winit::event_loop::EventLoop::new()?;
     let window = winit::window::WindowBuilder::new().build(&event_loop)?;
 
-    let update_time =
-        debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
-            format!("Update time: {:?}", v)
-        });
+    let mut wgpu_update = Duration::from_nanos(0);
+    let mut egui_update = Duration::from_nanos(0);
+    let mut wgpu_redraw = Duration::from_nanos(0);
+    let mut egui_redraw = Duration::from_nanos(0);
 
-    let wgpu_redraw =
-        debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
-            format!("WGPU Redraw time: {:?}", v)
-        });
-
-    let debug_redraw =
-        debug::widget::Label::new(std::time::Duration::from_nanos(0), |v| {
-            format!("Debug Redraw time: {:?}", v)
-        });
-
-    let frame_per_second =
-        debug::widget::Label::new(0, |v| format!("FPS: {}", v));
+    let frame_time_label = debug::widget::Label::new(
+        (String::new(), Duration::from_nanos(0)),
+        |x| format!("FPS: {} | Frame Time: {:?}", x.0, x.1),
+    );
+    let frame_time = debug::widget::BarChart::new(
+        [[0.0; 5]; 30],
+        [
+            "WGPU Update".to_string(),
+            "WGPU Draw".to_string(),
+            "EGUI Update".to_string(),
+            "EGUI Draw".to_string(),
+            "Other Time".to_string(),
+        ],
+        [
+            egui::Color32::LIGHT_BLUE,
+            egui::Color32::BLUE,
+            egui::Color32::LIGHT_GREEN,
+            egui::Color32::GREEN,
+            egui::Color32::WHITE,
+        ],
+    );
 
     let color = debug::widget::ColorPicker::new(
         debug::RGBA {
@@ -377,10 +387,8 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    app.debug().add_debug_item(frame_per_second.clone());
-    app.debug().add_debug_item(update_time.clone());
-    app.debug().add_debug_item(wgpu_redraw.clone());
-    app.debug().add_debug_item(debug_redraw.clone());
+    app.debug().add_debug_item(frame_time_label.clone());
+    app.debug().add_debug_item(frame_time.clone());
     app.debug().add_debug_item(color.clone());
     app.debug().add_debug_item(color1.clone());
     app.debug().add_debug_item(color2.clone());
@@ -424,11 +432,9 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
                             app.resize(*physical_size);
                         }
                         winit::event::WindowEvent::RedrawRequested => {
-                            elapsed_handler!(update_time, app.update());
-                            match app.render(
-                                wgpu_redraw.clone(),
-                                debug_redraw.clone(),
-                            ) {
+                            elapsed_handler!(wgpu_update => app.update());
+                            match app.render(&mut wgpu_redraw, &mut egui_redraw)
+                            {
                                 Ok(_) => {}
                                 Err(
                                     wgpu::SurfaceError::Lost
@@ -450,40 +456,69 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
                         }
                     };
                     app.debug_renderer.handle_input(app.window, event);
-
-                    // Fetch new color values
-                    {
-                        let color = color.borrow().get().into_rgba();
-                        let color1 = color1.borrow().get().into_rgb();
-                        let color2 = color2.borrow().get().into_rgb();
-                        let color3 = color3.borrow().get().into_rgb();
-
-                        app.pipeline.set_background(wgpu::Color {
-                            r: color[0] as f64,
-                            g: color[1] as f64,
-                            b: color[2] as f64,
-                            a: color[3] as f64,
-                        });
-
-                        vertices[0].set_color(color1);
-                        vertices[1].set_color(color2);
-                        vertices[2].set_color(color3);
-
-                        app.load_buffer(&vertices, &indices)
-                    }
-
-                    let time = std::time::Instant::now();
-                    let duration = time.duration_since(last_instant);
-                    last_instant = time;
-
-                    let fps = 1_000_000_000 / duration.as_nanos();
-                    frame_per_second.borrow_mut().set(fps);
                 }
             }
             _ => {
                 // Nothing to do yet
             }
         }
+        let t1 = std::time::Instant::now();
+        {
+            // Fetch new color values
+            let color = color.borrow().get().into_rgba();
+            let color1 = color1.borrow().get().into_rgb();
+            let color2 = color2.borrow().get().into_rgb();
+            let color3 = color3.borrow().get().into_rgb();
+
+            app.pipeline.set_background(wgpu::Color {
+                r: color[0] as f64,
+                g: color[1] as f64,
+                b: color[2] as f64,
+                a: color[3] as f64,
+            });
+
+            vertices[0].set_color(color1);
+            vertices[1].set_color(color2);
+            vertices[2].set_color(color3);
+
+            app.load_buffer(&vertices, &indices)
+        }
+
+        let time = std::time::Instant::now();
+        let duration = time.duration_since(last_instant);
+        egui_update = time.duration_since(t1);
+
+        let wgpu_update_f32 = wgpu_update.as_secs_f32() * 1000.0; // ms
+        wgpu_update = Duration::from_nanos(0);
+        let wgpu_redraw_f32 = wgpu_redraw.as_secs_f32() * 1000.0; // ms
+        wgpu_redraw = Duration::from_nanos(0);
+        let egui_redraw_f32 = egui_redraw.as_secs_f32() * 1000.0; // ms
+        egui_redraw = Duration::from_nanos(0);
+        let egui_update_f32 = egui_update.as_secs_f32() * 1000.0; // ms
+
+        let other_time_f32 = (duration.as_secs_f32() * 1000.0)
+            - (wgpu_update_f32
+                + wgpu_redraw_f32
+                + egui_redraw_f32
+                + egui_update_f32); // ms
+
+        frame_time_label.borrow_mut().set((
+            if duration.as_nanos() > 0 {
+                format!("{:.2}", 1e9 / duration.as_nanos() as f32)
+            } else {
+                "N/A".to_string()
+            },
+            duration,
+        ));
+
+        frame_time.borrow_mut().push([
+            wgpu_update_f32,
+            wgpu_redraw_f32,
+            egui_update_f32,
+            egui_redraw_f32,
+            other_time_f32,
+        ]);
+        last_instant = time;
     });
 
     println!("Exiting application");

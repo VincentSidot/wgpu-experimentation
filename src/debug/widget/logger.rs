@@ -2,14 +2,18 @@ use core::f32;
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
+    collections::VecDeque,
     ptr::{addr_of, addr_of_mut},
     rc::Rc,
     sync::Arc,
     usize,
 };
 
-use egui::{text, FontId};
-use regex::Regex;
+use egui::{
+    text::{self, LayoutJob},
+    FontId, Label, RichText,
+};
+use log::Level;
 
 use super::debug::DebugItem;
 
@@ -27,17 +31,97 @@ struct LoggerMessage {
     line: u32,
 }
 
-impl LoggerMessage {
-    fn color(&self) -> egui::Color32 {
-        match self.level {
-            log::Level::Info => INFO_COLOR,
-            log::Level::Warn => WARNING_COLOR,
-            log::Level::Error => ERROR_COLOR,
-            log::Level::Debug => DEBUG_COLOR,
-            log::Level::Trace => TRACE_COLOR,
-        }
-    }
+#[derive(Clone)]
+enum TextSlice {
+    Normal(String),
+    Highlighted(String),
+}
 
+#[derive(Clone)]
+struct ComputedLoggerMessage {
+    index_content: String,
+    log_content: Vec<TextSlice>,
+    hover_text: String,
+    level: log::Level,
+}
+
+impl LoggerMessage {
+    fn compute(
+        &self,
+        filter: Option<(&str, bool)>,
+        index: usize,
+    ) -> Option<ComputedLoggerMessage> {
+        let mut log_content = Vec::new();
+        if let Some(filter) = filter {
+            let sensitive = filter.1;
+
+            let filter = filter.0;
+            let filter_len = filter.len();
+
+            let mut last_after = 0;
+
+            let matched_iter: Vec<usize> = if sensitive {
+                self.content.match_indices(filter).map(|x| x.0).collect()
+            } else {
+                self.content
+                    .to_lowercase()
+                    .match_indices(filter.to_lowercase().as_str())
+                    .map(|x| x.0)
+                    .collect()
+            };
+
+            for start in matched_iter {
+                let end = start + filter_len;
+                let before_match = &self.content[last_after..start];
+                let current_match = &self.content[start..end];
+                last_after = end;
+                log_content.push(TextSlice::Normal(before_match.to_string()));
+                log_content
+                    .push(TextSlice::Highlighted(current_match.to_string()));
+            }
+            if last_after != 0 {
+                let after_match = &self.content[last_after..];
+                log_content.push(TextSlice::Normal(after_match.to_string()));
+            } else {
+                return None;
+            }
+        } else {
+            log_content.push(TextSlice::Normal(self.content.clone()));
+        };
+
+        Some(ComputedLoggerMessage {
+            index_content: format!("{:04}", index + 1),
+            log_content,
+            hover_text: format!(
+                "{} -> {}:{}\n{}",
+                self.source, self.file, self.line, self.content
+            ),
+            level: self.level,
+        })
+    }
+}
+
+fn level(level: &Level) -> &str {
+    match level {
+        log::Level::Info => "INFO",
+        log::Level::Warn => "WARN",
+        log::Level::Error => "ERRO",
+        log::Level::Debug => "DEBU",
+        log::Level::Trace => "TRAC",
+    }
+}
+
+fn color(level: &Level) -> egui::Color32 {
+    match level {
+        log::Level::Info => INFO_COLOR,
+        log::Level::Warn => WARNING_COLOR,
+        log::Level::Error => ERROR_COLOR,
+        log::Level::Debug => DEBUG_COLOR,
+        log::Level::Trace => TRACE_COLOR,
+    }
+}
+
+impl ComputedLoggerMessage {
     fn should_display(&self, show: &[bool; 5]) -> bool {
         match self.level {
             log::Level::Info => show[0],
@@ -45,16 +129,6 @@ impl LoggerMessage {
             log::Level::Error => show[2],
             log::Level::Debug => show[3],
             log::Level::Trace => show[4],
-        }
-    }
-
-    fn level(&self) -> &str {
-        match self.level {
-            log::Level::Info => "INFO",
-            log::Level::Warn => "WARN",
-            log::Level::Error => "ERRO",
-            log::Level::Debug => "DEBU",
-            log::Level::Trace => "TRAC",
         }
     }
 }
@@ -73,16 +147,22 @@ pub struct Logger {
     show: [bool; 5],
     filter: String,
     sensitive: bool,
+    log: Vec<ComputedLoggerMessage>,
+    last_index: usize,
+    paused: bool,
 }
 
 impl Logger {
-    pub const MAX_WIDTH: f32 = 800.0;
+    pub const MAX_WIDTH: f32 = 300.0;
 
     pub fn new() -> Self {
         Self {
             show: [true; 5],
             filter: String::new(),
             sensitive: false,
+            log: Vec::new(),
+            last_index: 0,
+            paused: false,
         }
     }
 
@@ -104,8 +184,8 @@ impl Logger {
 
 impl DebugItem for Logger {
     fn draw(&mut self, ui: &mut egui::Ui) {
-        let mut displayed_count = 0;
         let log_count = unsafe { LOGGER.items.len() };
+        let mut filtred_log = Vec::new();
 
         ui.horizontal(|ui| {
             if ui
@@ -116,6 +196,7 @@ impl DebugItem for Logger {
                 unsafe {
                     LOGGER.items.clear();
                 }
+                self.last_index = 0;
             }
             ui.checkbox(&mut self.show[0], "Info");
             ui.checkbox(&mut self.show[1], "Warning");
@@ -123,88 +204,8 @@ impl DebugItem for Logger {
             ui.checkbox(&mut self.show[3], "Debug");
             ui.checkbox(&mut self.show[4], "Trace");
         });
-        ui.separator();
-
-        let computed_filter = if self.sensitive {
-            self.filter.clone()
-        } else {
-            format!("(?i){}", self.filter)
-        };
-
-        ui.vertical(|ui| {
-            for (index, item) in unsafe { LOGGER.items.iter() }.enumerate() {
-                if item.should_display(&self.show) {
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{:03}", index + 1));
-                        ui.add(egui::Label::new(
-                            egui::RichText::new(item.level()).color(item.color()),
-                        ))
-                        .on_hover_text(format!("{} -> {}:{}", item.source, item.file, item.line));
-                        ui.add({
-                            let style = egui::Style::default();
-                            let mut layout_job = text::LayoutJob {
-                                wrap: egui::text::TextWrapping {
-                                    max_width: Self::MAX_WIDTH,
-                                    max_rows: usize::MAX,
-                                    break_anywhere: false,
-                                    overflow_character: None,
-                                },
-                                justify: true,
-                                ..Default::default()
-                            };
-
-                            if self.filter.is_empty() {
-                                egui::RichText::new(item.content.as_str()).append_to(
-                                    &mut layout_job,
-                                    &style,
-                                    egui::FontSelection::Default,
-                                    egui::Align::Center,
-                                );
-                            } else {
-                                let filter = Regex::new(&computed_filter)
-                                    .unwrap_or_else(|_| Regex::new(".*").unwrap());
-                                let mut last_after = 0;
-                                for matched in filter.find_iter(&item.content) {
-                                    displayed_count += 1;
-                                    let before_match = &item.content[last_after..matched.start()];
-                                    let current_match =
-                                        &item.content[matched.start()..matched.end()];
-                                    last_after = matched.end();
-
-                                    egui::RichText::new(before_match).append_to(
-                                        &mut layout_job,
-                                        &style,
-                                        egui::FontSelection::Default,
-                                        egui::Align::Center,
-                                    );
-
-                                    egui::RichText::new(current_match)
-                                        .background_color(egui::Color32::YELLOW)
-                                        .append_to(
-                                            &mut layout_job,
-                                            &style,
-                                            egui::FontSelection::Default,
-                                            egui::Align::Center,
-                                        );
-                                }
-
-                                let after_match = &item.content[last_after..];
-                                egui::RichText::new(after_match).append_to(
-                                    &mut layout_job,
-                                    &style,
-                                    egui::FontSelection::Default,
-                                    egui::Align::Center,
-                                );
-                            }
-
-                            egui::Label::new(layout_job).wrap(true)
-                        });
-                    });
-                }
-            }
-        });
-        ui.separator();
         ui.horizontal(|ui| {
+            ui.checkbox(&mut self.paused, "Pause");
             if ui
                 .button("Clear")
                 .on_hover_text("Clear the filter")
@@ -214,12 +215,110 @@ impl DebugItem for Logger {
             }
             ui.checkbox(&mut self.sensitive, "Case sensitive");
             ui.separator();
+            let filter = self.filter.clone();
             ui.add(
                 egui::TextEdit::singleline(&mut self.filter)
                     .hint_text("Filter")
                     .desired_width(200.0),
             );
-            ui.label(format!("{}/{}", displayed_count, log_count));
+            ui.separator();
+
+            if filter != self.filter {
+                self.last_index = 0;
+            }
+
+            let start_index = self.last_index;
+
+            let filter = if self.filter.is_empty() {
+                None
+            } else {
+                Some((self.filter.as_str(), self.sensitive))
+            };
+
+            if self.last_index == 0 {
+                self.log = unsafe { LOGGER.items.iter() }
+                    .enumerate()
+                    .filter_map(|(index, item)| item.compute(filter, index))
+                    .collect();
+            } else if !self.paused {
+                self.log.extend(
+                    unsafe { LOGGER.items[start_index..].iter() }
+                        .enumerate()
+                        .filter_map(|(index, item)| {
+                            item.compute(filter, index + start_index)
+                        }),
+                )
+            }
+            self.last_index = self.log.len();
+            if self.last_index > 0 {
+                self.last_index -= 1;
+            }
+
+            filtred_log = self
+                .log
+                .iter_mut()
+                .filter(|x| x.should_display(&self.show))
+                .map(|x| x.clone())
+                .rev()
+                .collect::<Vec<_>>();
+
+            ui.label(format!("{}/{}", filtred_log.len(), log_count));
+        });
+        ui.separator();
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for message in filtred_log {
+                ui.horizontal(|ui| {
+                    let message_index = message.index_content;
+                    let message_content = message.log_content;
+                    let message_hover = message.hover_text;
+                    let message_level = level(&message.level);
+                    let message_color = color(&message.level);
+
+                    ui.label(message_index);
+                    ui.add(Label::new(
+                        RichText::new(message_level).color(message_color),
+                    ))
+                    .on_hover_text(message_hover);
+
+                    let style = egui::Style::default();
+                    let mut layout_job = text::LayoutJob {
+                        wrap: egui::text::TextWrapping {
+                            max_width: Self::MAX_WIDTH,
+                            max_rows: usize::MAX,
+                            break_anywhere: false,
+                            overflow_character: None,
+                        },
+                        justify: true,
+                        ..Default::default()
+                    };
+
+                    for substring in message_content {
+                        match substring {
+                            TextSlice::Normal(content) => {
+                                RichText::new(content).append_to(
+                                    &mut layout_job,
+                                    &style,
+                                    egui::FontSelection::Default,
+                                    egui::Align::Center,
+                                );
+                            }
+                            TextSlice::Highlighted(content) => {
+                                RichText::new(content)
+                                    .background_color(egui::Color32::YELLOW)
+                                    .append_to(
+                                        &mut layout_job,
+                                        &style,
+                                        egui::FontSelection::Default,
+                                        egui::Align::Center,
+                                    );
+                            }
+                        }
+                    }
+
+                    ui.add(Label::new(layout_job).wrap(true));
+                });
+            }
         });
     }
 }

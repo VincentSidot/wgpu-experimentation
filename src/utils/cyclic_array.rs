@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 /// A cyclic array that can be used to store a fixed number of elements and
 /// rotate them in a circular fashion.
 ///
@@ -39,14 +41,14 @@ impl<const N: usize, T> CyclicArray<N, T> {
     ///
     /// * `element` - The element to push.
     ///
-    pub fn push(&mut self, element: T) {
+    pub fn push(&mut self, element: T) -> T {
         let end = if self.start == 0 {
             N - 1
         } else {
             self.start - 1
         };
 
-        self.data[end] = element;
+        std::mem::replace(&mut self.data[end], element)
     }
 
     /// Get an iterator over the elements of the array.
@@ -78,6 +80,44 @@ impl<'a, const N: usize, T> Iterator for CyclicArrayIterator<'a, N, T> {
         } else {
             None
         }
+    }
+}
+
+impl<'a, const N: usize, T> ExactSizeIterator
+    for CyclicArrayIterator<'a, N, T>
+{
+    fn len(&self) -> usize {
+        N
+    }
+}
+
+impl<'a, const N: usize, T> DoubleEndedIterator
+    for CyclicArrayIterator<'a, N, T>
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index < N {
+            let index = (self.start + N - self.index - 1) % N;
+            self.index += 1;
+            Some(&self.cyclic_array.data[index])
+        } else {
+            None
+        }
+    }
+}
+
+impl<const N: usize, T: std::fmt::Debug> std::fmt::Debug for CyclicArray<N, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+
+        for (i, value) in self.data.iter().enumerate() {
+            if i == self.start {
+                write!(f, "({:?}), ", value)?;
+            } else {
+                write!(f, "{:?}, ", value)?;
+            }
+        }
+
+        write!(f, "]")
     }
 }
 
@@ -116,5 +156,19 @@ mod tests {
         assert_eq!(iter.next(), Some(&4));
         assert_eq!(iter.next(), Some(&5));
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_cyclic_array_iterator_back() {
+        let cyclic_array = CyclicArray::new([1, 2, 3, 4, 5]);
+
+        let mut iter = cyclic_array.iter();
+
+        assert_eq!(iter.next_back(), Some(&5));
+        assert_eq!(iter.next_back(), Some(&4));
+        assert_eq!(iter.next_back(), Some(&3));
+        assert_eq!(iter.next_back(), Some(&2));
+        assert_eq!(iter.next_back(), Some(&1));
+        assert_eq!(iter.next_back(), None);
     }
 }
