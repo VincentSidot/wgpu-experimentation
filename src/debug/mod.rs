@@ -5,4 +5,5 @@ pub mod widget;
 pub use debug_renderer::DebugRenderer;
 pub use gui::Debug;
 
-pub use widget::color::{sRGB, sRGBA, ColorRef, RGB, RGBA};
+#[allow(unused_imports)]
+pub use widget::color::{ColorRef, RGB, RGBA, SRGB, SRGBA};

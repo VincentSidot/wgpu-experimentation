@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 /// A cyclic array that can be used to store a fixed number of elements and
 /// rotate them in a circular fashion.
 ///
@@ -12,16 +10,6 @@ impl<const N: usize, T> CyclicArray<N, T> {
     /// Create a new cyclic array with the given data.
     pub fn new(data: [T; N]) -> Self {
         Self { data, start: 0 }
-    }
-
-    /// Get the array size.
-    pub const fn size(&self) -> usize {
-        N
-    }
-
-    /// Get the current element.
-    pub fn get(&self) -> &T {
-        &self.data[self.start]
     }
 
     /// Rotate the array by the given number of steps.
@@ -125,24 +113,6 @@ impl<const N: usize, T: std::fmt::Debug> std::fmt::Debug for CyclicArray<N, T> {
 
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_cyclic_array() {
-        let mut cyclic_array = CyclicArray::new([1, 2, 3, 4, 5]);
-
-        assert_eq!(cyclic_array.get(), &1);
-        cyclic_array.rotate(1);
-        assert_eq!(cyclic_array.get(), &2);
-        cyclic_array.rotate(1);
-        assert_eq!(cyclic_array.get(), &3);
-        cyclic_array.push(6);
-        cyclic_array.rotate(1);
-        assert_eq!(cyclic_array.get(), &4);
-        cyclic_array.rotate(1);
-        assert_eq!(cyclic_array.get(), &5);
-        cyclic_array.rotate(2);
-        assert_eq!(cyclic_array.get(), &6);
-    }
 
     #[test]
     fn test_cyclic_array_iterator() {

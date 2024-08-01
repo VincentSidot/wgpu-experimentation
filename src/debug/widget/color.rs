@@ -28,14 +28,14 @@ macro_rules! color {
     };
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct RGB {
     pub red: f32,
     pub green: f32,
     pub blue: f32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct RGBA {
     pub red: f32,
     pub green: f32,
@@ -43,15 +43,15 @@ pub struct RGBA {
     pub alpha: f32,
 }
 
-#[derive(Debug, Default)]
-pub struct sRGB {
+#[derive(Debug, Default, PartialEq)]
+pub struct SRGB {
     pub red: u8,
     pub green: u8,
     pub blue: u8,
 }
 
-#[derive(Debug, Default)]
-pub struct sRGBA {
+#[derive(Debug, Default, PartialEq)]
+pub struct SRGBA {
     pub red: u8,
     pub green: u8,
     pub blue: u8,
@@ -71,7 +71,7 @@ color! {
     [reference.red, reference.green, reference.blue],
 }
 color! {
-    sRGB,
+    SRGB,
     reference,
     [
         reference.red as f32 / 255.0,
@@ -86,7 +86,7 @@ color! {
     ],
 }
 color! {
-    sRGBA,
+    SRGBA,
     reference,
     [
         reference.red as f32 / 255.0,
@@ -104,6 +104,7 @@ color! {
 pub struct ColorPicker<C> {
     reference: C,
     format: String,
+    has_been_updated: bool,
 }
 
 impl<C> ColorPicker<C>
@@ -117,12 +118,14 @@ where
         Rc::new(RefCell::new(Self {
             reference,
             format: format.to_string(),
+            has_been_updated: false,
         }))
     }
 
-    pub fn set(&mut self, reference: C) {
-        self.reference = reference;
-    }
+    // pub fn set(&mut self, reference: C) {
+    //     self.reference = reference;
+    //     self.has_been_updated = true;
+    // }
 
     pub fn get(&self) -> &C {
         &self.reference
@@ -130,6 +133,14 @@ where
 
     pub fn as_text(&self) -> &str {
         &self.format
+    }
+
+    pub fn has_been_updated(&self) -> bool {
+        self.has_been_updated
+    }
+
+    pub fn reset_updated(&mut self) {
+        self.has_been_updated = false;
     }
 }
 
@@ -153,7 +164,10 @@ macro_rules! color_debug {
                     $fun(ui, &mut $value);
                 });
 
-                self.reference = $convert_bak;
+                if self.reference != $convert_bak {
+                    self.reference = $convert_bak;
+                    self.has_been_updated = true;
+                }
             }
         }
     };
@@ -177,7 +191,10 @@ macro_rules! color_debug {
                     $fun(ui, &mut $value, $alpha);
                 });
 
-                self.reference = $convert_bak;
+                if self.reference != $convert_bak {
+                    self.reference = $convert_bak;
+                    self.has_been_updated = true;
+                }
             }
         }
     };
@@ -217,11 +234,11 @@ color_debug! {
 }
 
 color_debug! {
-    sRGB,
+    SRGB,
     reference,
     value,
     [reference.red, reference.green, reference.blue],
-    sRGB {
+    SRGB {
         red: value[0],
         green: value[1],
         blue: value[2],
@@ -230,7 +247,7 @@ color_debug! {
 }
 
 color_debug! {
-    sRGBA,
+    SRGBA,
     reference,
     value,
     egui::ecolor::Color32::from_rgba_premultiplied(
@@ -239,7 +256,7 @@ color_debug! {
         reference.blue,
         reference.alpha,
     ),
-    sRGBA {
+    SRGBA {
         red: value.r(),
         green: value.g(),
         blue: value.b(),

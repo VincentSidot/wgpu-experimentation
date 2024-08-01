@@ -213,19 +213,21 @@ impl DebugItem for Logger {
             {
                 self.filter.clear();
             }
-            ui.checkbox(&mut self.sensitive, "Case sensitive");
-            ui.separator();
-            let filter = self.filter.clone();
-            ui.add(
-                egui::TextEdit::singleline(&mut self.filter)
-                    .hint_text("Filter")
-                    .desired_width(200.0),
-            );
-            ui.separator();
-
-            if filter != self.filter {
+            if ui.checkbox(&mut self.sensitive, "Case sensitive").clicked() {
                 self.last_index = 0;
             }
+            ui.separator();
+            if ui
+                .add(
+                    egui::TextEdit::singleline(&mut self.filter)
+                        .hint_text("Filter")
+                        .desired_width(200.0),
+                )
+                .changed()
+            {
+                self.last_index = 0;
+            }
+            ui.separator();
 
             let start_index = self.last_index;
 
@@ -236,23 +238,30 @@ impl DebugItem for Logger {
             };
 
             if self.last_index == 0 {
+                let mut parsed_item = 0;
                 self.log = unsafe { LOGGER.items.iter() }
                     .enumerate()
-                    .filter_map(|(index, item)| item.compute(filter, index))
+                    .filter_map(|(index, item)| {
+                        parsed_item += 1;
+                        item.compute(filter, index)
+                    })
                     .collect();
+                self.last_index = parsed_item;
             } else if !self.paused {
+                let mut parsed_item = 0;
                 self.log.extend(
                     unsafe { LOGGER.items[start_index..].iter() }
                         .enumerate()
                         .filter_map(|(index, item)| {
+                            parsed_item += 1;
                             item.compute(filter, index + start_index)
                         }),
-                )
+                );
+                self.last_index += parsed_item;
             }
-            self.last_index = self.log.len();
-            if self.last_index > 0 {
-                self.last_index -= 1;
-            }
+            // if self.last_index > 0 {
+            //     self.last_index -= 1;
+            // }
 
             filtred_log = self
                 .log
@@ -262,7 +271,7 @@ impl DebugItem for Logger {
                 .rev()
                 .collect::<Vec<_>>();
 
-            ui.label(format!("{}/{}", filtred_log.len(), log_count));
+            ui.label(format!("{}/{}", self.log.len(), log_count));
         });
         ui.separator();
 
