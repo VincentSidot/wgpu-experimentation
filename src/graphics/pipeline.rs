@@ -187,6 +187,7 @@ impl Pipeline {
         vertices: &[Vertex],
         indices: &[u16],
     ) {
+        log::trace!("Loading buffer");
         let vertex_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
