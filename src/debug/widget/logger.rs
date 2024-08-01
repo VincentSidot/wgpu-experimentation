@@ -150,6 +150,7 @@ pub struct Logger {
     logs: Vec<ComputedLoggerMessage>,
     last_index: usize,
     paused: bool,
+    reversed: bool,
 }
 
 impl Logger {
@@ -163,6 +164,7 @@ impl Logger {
             logs: Vec::new(),
             last_index: 0,
             paused: false,
+            reversed: true,
         }
     }
 
@@ -244,6 +246,8 @@ impl DebugItem for Logger {
 
             ui.separator();
             ui.label(format!("{}/{}", self.logs.len(), log_count));
+            ui.separator();
+            ui.checkbox(&mut self.reversed, "Reversed")
         });
         ui.separator();
         ui.horizontal(|ui| {
@@ -283,9 +287,21 @@ impl DebugItem for Logger {
 
         egui::ScrollArea::vertical()
             .auto_shrink(Vec2b::new(false, false))
-            .stick_to_bottom(true)
+            .stick_to_bottom(false)
             .show_rows(ui, row_height, num_rows, |ui, row_range| {
-                for message in self.logs[row_range].iter() {
+                let logs_iterator: Box<
+                    dyn Iterator<Item = &ComputedLoggerMessage>,
+                > = if self.reversed {
+                    let range_reversed = std::ops::Range::<usize> {
+                        start: num_rows - row_range.end,
+                        end: num_rows - row_range.start,
+                    };
+                    Box::new(self.logs[range_reversed].iter().rev())
+                } else {
+                    Box::new(self.logs[row_range].iter())
+                };
+
+                for message in logs_iterator {
                     ui.horizontal(|ui| {
                         let message_index = message.index_content.clone();
                         let message_content = message.log_content.clone();
