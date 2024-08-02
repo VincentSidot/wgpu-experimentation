@@ -1,25 +1,18 @@
 mod debug;
 mod graphics;
 mod utils;
+mod config;
 
+use config::WindowSizeHint;
 pub use debug::widget::Logger;
+pub use config::Config;
+use config::AppConfig;
+
 
 use std::{error::Error, time::Duration};
 
 use debug::ColorRef;
 
-#[derive(Debug)]
-pub enum WindowSize {
-    FullScreen,
-    FullScreenBorderless,
-    Windowed(u32, u32),
-}
-
-impl Default for WindowSize {
-    fn default() -> Self {
-        WindowSize::Windowed(800, 600)
-    }
-}
 
 struct GraphicalProcessUnit<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -48,11 +41,13 @@ struct App<'a> {
 
     // Fullscreen
     is_fullscreen: bool,
-    last_size: (u32, u32),
 
     // Winit stuff
     window: &'a winit::window::Window,
     size: winit::dpi::PhysicalSize<u32>,
+
+    // Config
+    config: AppConfig,
 }
 
 macro_rules! elapsed_handler {
@@ -68,6 +63,7 @@ macro_rules! elapsed_handler {
 impl<'a> App<'a> {
     async fn new(
         window: &'a winit::window::Window,
+        app_config: AppConfig,
     ) -> Result<Self, Box<dyn Error>> {
         let size = window.inner_size();
 
@@ -105,12 +101,14 @@ impl<'a> App<'a> {
             .copied()
             .find(|f| f.is_srgb())
             .ok_or("No sRGB format found on surface!")?;
+        let selected_present_mode = app_config.present_mode.to_wgpu_present_mode(&surface_caps)?;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            // present_mode: surface_caps.present_modes[0],
+            present_mode: selected_present_mode,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2, // TODO - what is this? (among every other thing I do not understand in this codebase)
@@ -141,7 +139,7 @@ impl<'a> App<'a> {
             window,
             size,
             is_fullscreen: false,
-            last_size: (0, 0),
+            config: app_config,
         })
     }
 
@@ -230,9 +228,9 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn set_size(&mut self, size: &WindowSize) {
-        match size {
-            WindowSize::FullScreen => {
+    fn update_size(&mut self) {
+        match self.config.window_size.hint {
+            WindowSizeHint::FullScreen => {
                 let monitor = self
                     .window
                     .current_monitor()
@@ -249,20 +247,20 @@ impl<'a> App<'a> {
                 ));
                 self.is_fullscreen = true;
             }
-            WindowSize::FullScreenBorderless => {
+            WindowSizeHint::FullScreenBorderless => {
                 let monitor = self.window.current_monitor();
                 self.window.set_fullscreen(Some(
                     winit::window::Fullscreen::Borderless(monitor),
                 ));
                 self.is_fullscreen = true;
             }
-            WindowSize::Windowed(width, height) => {
-                let size = winit::dpi::PhysicalSize::new(*width, *height);
+            WindowSizeHint::Windowed => {
+                let (width, height) = self.config.window_size.size;
+                let size = winit::dpi::PhysicalSize::new(width, height);
                 self.window.set_fullscreen(None);
                 if self.window.request_inner_size(size).is_some() {
                     self.resize(size);
                 }
-                self.last_size = (*width, *height);
                 self.is_fullscreen = false;
             }
         }
@@ -275,17 +273,20 @@ impl<'a> App<'a> {
     fn set_fullscreen(&mut self, value: bool) {
         self.is_fullscreen = value;
         if value {
-            self.set_size(&WindowSize::FullScreen);
+            self.config.window_size.hint = WindowSizeHint::FullScreen;
         } else {
-            let (width, height) = self.last_size;
-            self.set_size(&WindowSize::Windowed(width, height));
+            self.config.window_size.hint = WindowSizeHint::Windowed;
         }
+        self.update_size();
     }
 }
 
-pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
+pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    let config = config.compute();
     let event_loop = winit::event_loop::EventLoop::new()?;
-    let window = winit::window::WindowBuilder::new().build(&event_loop)?;
+    let window = winit::window::WindowBuilder::new()
+        .with_title(&config.window_title)
+        .build(&event_loop)?;
 
     let mut wgpu_update = Duration::from_nanos(0);
     let mut egui_update = Duration::from_nanos(0);
@@ -375,9 +376,9 @@ pub async fn run(size: &WindowSize) -> Result<(), Box<dyn Error>> {
 
     let indices = vec![0, 1, 2];
 
-    let mut app = App::new(&window).await?;
+    let mut app = App::new(&window, config).await?;
 
-    app.set_size(size);
+    app.update_size();
     app.pipeline.set_background({
         let color = color.borrow().get().into_rgba();
         wgpu::Color {

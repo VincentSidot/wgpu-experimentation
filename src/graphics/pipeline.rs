@@ -216,7 +216,6 @@ impl Pipeline {
         view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        log::trace!("Rendering buffer");
         // Draw the buffer if it exists
         if let Some(buffer) = &self.buffer {
             let mut render_pass =

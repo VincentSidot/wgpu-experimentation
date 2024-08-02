@@ -4,11 +4,11 @@ use egui::{
 };
 
 use super::debug::DebugItem;
-use crate::utils::CyclicArray;
+use crate::utils::CircularBuffer;
 use std::{cell::RefCell, rc::Rc};
 
 pub struct BarChart<const N: usize, const K: usize> {
-    data: CyclicArray<N, [f32; K]>,
+    data: CircularBuffer<N, [f32; K]>,
     labels: [String; K],
     colors: [egui::Color32; K],
     max_value: f32,
@@ -34,7 +34,7 @@ impl<const N: usize, const K: usize> BarChart<N, K> {
         }
 
         Rc::new(RefCell::new(Self {
-            data: CyclicArray::new(data),
+            data: CircularBuffer::new(data),
             labels,
             colors,
             max_value,
@@ -44,15 +44,14 @@ impl<const N: usize, const K: usize> BarChart<N, K> {
 
     pub fn push(&mut self, values: [f32; K]) {
         let previous_values = self.data.push(values);
-        let value = values.iter().fold(0.0, |acc, &x| acc + x);
+        let value: f32 = values.iter().sum();
 
-        let previous_value =
-            previous_values.iter().fold(0.0, |acc, &x| acc + x);
+        let previous_value: f32 = previous_values.iter().sum();
 
         if previous_value == self.max_value {
             self.max_value = f32::MIN;
             for value in self.data.iter() {
-                let value = value.iter().fold(0.0, |acc, &x| acc + x);
+                let value: f32 = value.iter().sum();
                 if value > self.max_value {
                     self.max_value = value;
                 }

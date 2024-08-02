@@ -1,3 +1,3 @@
-mod cyclic_array;
+mod circular_buffer;
 
-pub use cyclic_array::CyclicArray;
+pub use circular_buffer::CircularBuffer;

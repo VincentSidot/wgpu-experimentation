@@ -1,12 +1,12 @@
 /// A cyclic array that can be used to store a fixed number of elements and
 /// rotate them in a circular fashion.
 ///
-pub struct CyclicArray<const N: usize, T> {
+pub struct CircularBuffer<const N: usize, T> {
     data: [T; N],
     start: usize,
 }
 
-impl<const N: usize, T> CyclicArray<N, T> {
+impl<const N: usize, T> CircularBuffer<N, T> {
     /// Create a new cyclic array with the given data.
     pub fn new(data: [T; N]) -> Self {
         Self { data, start: 0 }
@@ -19,8 +19,22 @@ impl<const N: usize, T> CyclicArray<N, T> {
     ///
     /// * `steps` - The number of steps to rotate the array.
     ///
-    pub fn rotate(&mut self, steps: usize) {
+    pub fn rotate(&mut self, steps: isize) {
+        if steps == 0 {
+            return;
+        } else if steps > 0 {
+            self.rotate_right(steps as usize);
+        } else {
+            self.rotate_left((-steps) as usize);
+        }
+    }
+
+    fn rotate_left(&mut self, steps: usize) {
         self.start = (self.start + steps) % N;
+    }
+
+    fn rotate_right(&mut self, steps: usize) {
+        self.start = (self.start + N - steps) % N;
     }
 
     /// Push a new element to the array.
@@ -42,8 +56,8 @@ impl<const N: usize, T> CyclicArray<N, T> {
     /// Get an iterator over the elements of the array.
     /// The iterator will start at the current element
     /// and iterate over all elements in the array.
-    pub fn iter(&self) -> CyclicArrayIterator<N, T> {
-        CyclicArrayIterator {
+    pub fn iter(&self) -> CircularBufferIterator<N, T> {
+        CircularBufferIterator {
             cyclic_array: self,
             start: self.start,
             index: 0,
@@ -51,13 +65,13 @@ impl<const N: usize, T> CyclicArray<N, T> {
     }
 }
 
-pub struct CyclicArrayIterator<'a, const N: usize, T> {
-    cyclic_array: &'a CyclicArray<N, T>,
+pub struct CircularBufferIterator<'a, const N: usize, T> {
+    cyclic_array: &'a CircularBuffer<N, T>,
     start: usize,
     index: usize,
 }
 
-impl<'a, const N: usize, T> Iterator for CyclicArrayIterator<'a, N, T> {
+impl<'a, const N: usize, T> Iterator for CircularBufferIterator<'a, N, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -72,7 +86,7 @@ impl<'a, const N: usize, T> Iterator for CyclicArrayIterator<'a, N, T> {
 }
 
 impl<'a, const N: usize, T> ExactSizeIterator
-    for CyclicArrayIterator<'a, N, T>
+    for CircularBufferIterator<'a, N, T>
 {
     fn len(&self) -> usize {
         N
@@ -80,7 +94,7 @@ impl<'a, const N: usize, T> ExactSizeIterator
 }
 
 impl<'a, const N: usize, T> DoubleEndedIterator
-    for CyclicArrayIterator<'a, N, T>
+    for CircularBufferIterator<'a, N, T>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.index < N {
@@ -93,7 +107,9 @@ impl<'a, const N: usize, T> DoubleEndedIterator
     }
 }
 
-impl<const N: usize, T: std::fmt::Debug> std::fmt::Debug for CyclicArray<N, T> {
+impl<const N: usize, T: std::fmt::Debug> std::fmt::Debug
+    for CircularBuffer<N, T>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[")?;
 
@@ -116,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_cyclic_array_iterator() {
-        let cyclic_array = CyclicArray::new([1, 2, 3, 4, 5]);
+        let cyclic_array = CircularBuffer::new([1, 2, 3, 4, 5]);
 
         let mut iter = cyclic_array.iter();
 
@@ -130,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_cyclic_array_iterator_back() {
-        let cyclic_array = CyclicArray::new([1, 2, 3, 4, 5]);
+        let cyclic_array = CircularBuffer::new([1, 2, 3, 4, 5]);
 
         let mut iter = cyclic_array.iter();
 
