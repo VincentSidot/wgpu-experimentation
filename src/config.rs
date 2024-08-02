@@ -80,7 +80,10 @@ impl PresentModeConfig {
             .ok_or("No present modes found")?;
         match self {
             PresentModeConfig::Default => {
-                log::trace!("Using default present mode");
+                log::trace!(
+                    "Using default present mode: {:?}",
+                    fallback_present_mode
+                );
                 Ok(fallback_present_mode)
             }
             present_mode => {
