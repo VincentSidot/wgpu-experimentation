@@ -16,3 +16,4 @@ bytemuck = { version = "1.14", features = ["derive"] }
 log = "0.4.14"
 clap = { version = "4.5.13", features = ["derive"] }
 serde = { version = "1.0.204", features = ["derive"] }
+cgmath = "0.18.0"

@@ -171,12 +171,14 @@ impl<'a> App<'a> {
         }
     }
 
-    fn input(&mut self, _event: &winit::event::WindowEvent) -> bool {
-        self.window().request_redraw();
-        false
+    fn input(&mut self, event: &winit::event::WindowEvent) -> bool {
+        // self.window().request_redraw();
+        self.pipeline.process_input(event)
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self) {
+        self.pipeline.update(&self.gpu.queue);
+    }
 
     fn render(
         &mut self,
@@ -407,6 +409,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 ref event,
                 window_id,
             } if window_id == app.window().id() => {
+                // 
                 if !app.input(event) {
                     match event {
                         winit::event::WindowEvent::KeyboardInput {
@@ -555,12 +558,18 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                             ]);
                             last_instant = time;
                         }
+                        
+                        
                         _ => {
                             // Nothing to do yet
                         }
                     };
                     app.debug_renderer.handle_input(app.window, event);
                 }
+            }
+            winit::event::Event::AboutToWait => {
+                // Send a redraw request
+                app.window().request_redraw();
             }
             _ => {
                 // Nothing to do yet
