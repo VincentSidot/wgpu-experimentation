@@ -45,8 +45,11 @@ pub struct AppConfig {
 #[derive(Debug, Clone, ValueEnum, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WindowSizeHint {
-    FullScreen,
-    FullScreenBorderless,
+    #[clap(help = "Fullscreen mode with borders.")]
+    Fullscreen,
+    #[clap(help = "Fullscreen mode without borders.")]
+    FullscreenBorderless,
+    #[clap(help = "Windowed mode.")]
     Windowed,
 }
 
@@ -59,13 +62,26 @@ pub struct WindowSizeConfig {
 #[derive(Debug, Default, Clone, ValueEnum, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PresentModeConfig {
+    #[clap(help = "Chooses FifoRelaxed -> Fifo based on availability.")]
     AutoVsync = 0,
+    #[clap(
+        help = "Chooses Immediate -> Mailbox -> Fifo (on web) based on availability."
+    )]
     AutoNoVsync = 1,
+    #[clap(help = "Supported on all platforms.")]
     Fifo = 2,
+    #[clap(help = "Supported on AMD on Vulkan.")]
     FifoRelaxed = 3,
+    #[clap(
+        help = "Supported on most platforms except older DX12 and Wayland."
+    )]
     Immediate = 4,
+    #[clap(
+        help = "Supported on DX12 on Windows 10, NVidia on Vulkan and Wayland on Vulkan."
+    )]
     Mailbox = 5,
     #[default]
+    #[clap(help = "Uses the first available present mode.")]
     Default = 6,
 }
 

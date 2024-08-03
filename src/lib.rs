@@ -230,7 +230,7 @@ impl<'a> App<'a> {
 
     fn update_size(&mut self) {
         match self.config.window_size.hint {
-            WindowSizeHint::FullScreen => {
+            WindowSizeHint::Fullscreen => {
                 let monitor = self
                     .window
                     .current_monitor()
@@ -247,7 +247,7 @@ impl<'a> App<'a> {
                 ));
                 self.is_fullscreen = true;
             }
-            WindowSizeHint::FullScreenBorderless => {
+            WindowSizeHint::FullscreenBorderless => {
                 let monitor = self.window.current_monitor();
                 self.window.set_fullscreen(Some(
                     winit::window::Fullscreen::Borderless(monitor),
@@ -273,7 +273,7 @@ impl<'a> App<'a> {
     fn set_fullscreen(&mut self, value: bool) {
         self.is_fullscreen = value;
         if value {
-            self.config.window_size.hint = WindowSizeHint::FullScreen;
+            self.config.window_size.hint = WindowSizeHint::Fullscreen;
         } else {
             self.config.window_size.hint = WindowSizeHint::Windowed;
         }
