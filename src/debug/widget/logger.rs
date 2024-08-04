@@ -376,6 +376,11 @@ impl log::Log for StaticLogger {
             return;
         }
 
+        // Discard logs from winit
+        if record.target().starts_with("winit") {
+            return;
+        }
+
         if self.enabled(record.metadata()) {
             unsafe {
                 LOGGER.items.push(LoggerMessage {
