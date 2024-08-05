@@ -1,4 +1,5 @@
 use cgmath::{InnerSpace, SquareMatrix};
+use wgpu::util::DeviceExt;
 
 const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0,
@@ -14,6 +15,24 @@ pub struct Camera {
     fovy: f32,
     znear: f32,
     zfar: f32,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+}
+
+pub struct CameraBuffer {
+    pub buffer: wgpu::Buffer,
+    pub uniform: CameraUniform,
+    pub camera: Camera,
+    bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
+}
+
+pub struct CameraController {
+    speed: f32,
+    direction: u8,
 }
 
 impl Camera {
@@ -41,12 +60,6 @@ impl Camera {
             zfar: 100.0,
         }
     }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
@@ -111,11 +124,6 @@ impl CameraDirection {
     }
 }
 
-pub struct CameraController {
-    speed: f32,
-    direction: u8,
-}
-
 impl CameraController {
     pub fn new(speed: f32) -> Self {
         Self {
@@ -164,36 +172,8 @@ impl CameraController {
             }
             winit::event::WindowEvent::MouseWheel { delta, phase, .. } => {
                 log::trace!("Mouse wheel: {:?} [{:?}]", delta, phase);
-                return false;
-                let direction = match delta {
-                    winit::event::MouseScrollDelta::LineDelta(_, y) => {
-                        if *y > 0.0 {
-                            CameraDirection::Forward
-                        } else {
-                            CameraDirection::Backward
-                        }
-                    }
-                    winit::event::MouseScrollDelta::PixelDelta(
-                        winit::dpi::PhysicalPosition { y, .. },
-                    ) => {
-                        if *y > 0.0 {
-                            CameraDirection::Forward
-                        } else {
-                            CameraDirection::Backward
-                        }
-                    }
-                };
 
-                let value = match phase {
-                    winit::event::TouchPhase::Started
-                    | winit::event::TouchPhase::Moved => true,
-                    winit::event::TouchPhase::Ended
-                    | winit::event::TouchPhase::Cancelled => false,
-                };
-
-                self.set_direction(direction, value);
-
-                true
+                false
             }
             _ => false,
         }
@@ -215,21 +195,13 @@ impl CameraController {
         let forward_normalized = forward.normalize();
         let forward_magnitude = forward.magnitude();
 
-        if self.contains(CameraDirection::Forward)
-            && forward_magnitude > self.speed
+        if self.contains(CameraDirection::Up) && forward_magnitude > self.speed
         {
             camera.eye += forward_normalized * self.speed;
         }
 
-        if self.contains(CameraDirection::Backward) {
-            camera.eye -= forward_normalized * self.speed;
-        }
-
-        if self.contains(CameraDirection::Up) {
-            camera.eye += camera.up * self.speed;
-        }
         if self.contains(CameraDirection::Down) {
-            camera.eye -= camera.up * self.speed;
+            camera.eye -= forward_normalized * self.speed;
         }
 
         let right = forward_normalized.cross(camera.up);
@@ -263,5 +235,62 @@ impl CameraController {
         //         - (forward - right * self.speed).normalize()
         //             * forward_magnitude;
         // }
+    }
+}
+
+impl CameraBuffer {
+    pub fn init(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> Self {
+        let mut uniform = CameraUniform::new();
+        let camera = Camera::init(config.width, config.height);
+        uniform.update_view_proj(&camera);
+        let buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Camera Buffer"),
+                contents: bytemuck::cast_slice(&[uniform]),
+                usage: wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::COPY_DST,
+            });
+        let bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
+        CameraBuffer {
+            buffer,
+            uniform,
+            camera,
+            bind_group,
+            bind_group_layout,
+        }
+    }
+
+    pub fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.bind_group_layout
+    }
+
+    pub fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
     }
 }

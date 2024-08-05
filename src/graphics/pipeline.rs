@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 
 use crate::utils::lisp::prog1;
 
-use super::camera::{self, Camera};
+use super::camera::{self, Camera, CameraBuffer};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -100,14 +100,6 @@ struct Buffer {
     num_indices: u32,
 }
 
-struct CameraBuffer {
-    pub buffer: wgpu::Buffer,
-    pub uniform: camera::CameraUniform,
-    pub camera: Camera,
-    bind_group: wgpu::BindGroup,
-    bind_group_layout: wgpu::BindGroupLayout,
-}
-
 pub struct Pipeline {
     render_pipeline: wgpu::RenderPipeline,
     buffer: Option<Buffer>,
@@ -137,56 +129,12 @@ impl Pipeline {
                 ),
             });
 
-        let camera = {
-            let mut uniform = camera::CameraUniform::new();
-            let camera = Camera::init(config.width, config.height);
-            uniform.update_view_proj(&camera);
-            let buffer =
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[uniform]),
-                    usage: wgpu::BufferUsages::UNIFORM
-                        | wgpu::BufferUsages::COPY_DST,
-                });
-            let bind_group_layout = device.create_bind_group_layout(
-                &wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("camera_bind_group_layout"),
-                },
-            );
-
-            let bind_group =
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    }],
-                    label: Some("camera_bind_group"),
-                });
-
-            CameraBuffer {
-                buffer,
-                uniform,
-                camera,
-                bind_group,
-                bind_group_layout,
-            }
-        };
+        let camera = CameraBuffer::init(device, config);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera.bind_group_layout],
+                bind_group_layouts: &[&camera.bind_group_layout()],
                 push_constant_ranges: &[],
             });
 
@@ -215,8 +163,8 @@ impl Pipeline {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    // cull_mode: Some(wgpu::Face::Back),
-                    cull_mode: None,
+                    cull_mode: Some(wgpu::Face::Back),
+                    // cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -321,7 +269,7 @@ impl Pipeline {
             let num_indices = buffer.num_indices;
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.camera.bind_group(), &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(
                 index_buffer.slice(..),
