@@ -22,7 +22,7 @@ impl Debug {
     pub fn run_ui(&mut self, ui: &egui::Context) {
         egui::Window::new("Debug Window")
             // .vscroll(true)
-            .default_open(true)
+            .default_open(false)
             .max_width(1000.0)
             .max_height(800.0)
             .default_width(800.0)
@@ -36,7 +36,7 @@ impl Debug {
 
         if !self.debug_widget.is_empty() {
             egui::Window::new("Debug Console")
-                .default_open(true)
+                .default_open(false)
                 .max_width(Logger::MAX_WIDTH)
                 .resizable(true)
                 .show(ui, |ui| {
