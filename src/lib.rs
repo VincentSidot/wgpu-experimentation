@@ -4,13 +4,14 @@ mod utils;
 mod config;
 
 use config::WindowSizeHint;
-pub use debug::widget::Logger;
 pub use config::Config;
+pub use debug::widget::Logger;
 use config::AppConfig;
 use utils::shape::shape;
 
 
-use std::{error::Error, time::Duration};
+
+use std::{error::Error, ops::RangeInclusive, time::Duration};
 
 use debug::ColorRef;
 
@@ -49,6 +50,12 @@ struct App<'a> {
 
     // Config
     config: AppConfig,
+
+    // Mouse state
+    mouse_pressed: bool,
+
+    // Time state
+    last_update_instant: std::time::Instant,
 }
 
 macro_rules! elapsed_handler {
@@ -65,6 +72,8 @@ impl<'a> App<'a> {
     async fn new(
         window: &'a winit::window::Window,
         app_config: AppConfig,
+        camera_speed: f32,
+        camera_sensitivity: f32,
     ) -> Result<Self, Box<dyn Error>> {
         let size = window.inner_size();
 
@@ -125,7 +134,12 @@ impl<'a> App<'a> {
         let debug_window = debug::Debug::init();
 
         // Setup the graphics pipeline
-        let pipeline = graphics::Pipeline::init(&device, &config)?;
+        let pipeline = graphics::Pipeline::init(
+            &device,
+            &config,
+            camera_speed,
+            camera_sensitivity
+        )?;
 
         Ok(Self {
             gpu: GraphicalProcessUnit {
@@ -141,7 +155,16 @@ impl<'a> App<'a> {
             size,
             is_fullscreen: false,
             config: app_config,
+            mouse_pressed: false,
+            last_update_instant: std::time::Instant::now(),
         })
+    }
+
+
+    pub fn process_mouse_motion(&mut self, delta: (f64, f64)) {
+        if self.mouse_pressed {
+            self.pipeline.process_mouse_motion(delta);
+        }
     }
 
     pub fn window(&self) -> &winit::window::Window {
@@ -169,16 +192,22 @@ impl<'a> App<'a> {
             self.gpu
                 .surface
                 .configure(&self.gpu.device, &self.gpu.config);
+            self.pipeline.resize(
+                self.gpu.config.width,
+                self.gpu.config.height,
+            );
         }
     }
 
     fn input(&mut self, event: &winit::event::WindowEvent) -> bool {
         // self.window().request_redraw();
-        self.pipeline.process_input(event)
+        self.pipeline.process_input(event, &mut self.mouse_pressed)
     }
 
     fn update(&mut self) {
-        self.pipeline.update(&self.gpu.queue);
+        let dt = self.last_update_instant.elapsed();
+        self.pipeline.update(&self.gpu.queue, dt);
+        self.last_update_instant = std::time::Instant::now();
     }
 
     fn render(
@@ -342,6 +371,9 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         "Shape Color",
     );
 
+    let camera_speed = debug::widget::Slider::new(1.0, RangeInclusive::new(0.1, 3.0), "Camera Speed");
+    let camera_sensitivity = debug::widget::Slider::new(1.0, RangeInclusive::new(0.1, 3.0), "Camera Sensitivity");
+
     let (mut vertices, indices) = shape!(
         shape_color.borrow().get().into_rgb(); // Red
         // Cube vertices
@@ -377,7 +409,12 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     log::trace!("Vertices: {:?}", vertices);
 
 
-    let mut app = App::new(&window, config).await?;
+
+    let mut app = {
+        let camera_speed = *camera_speed.borrow().get();
+        let camera_sensitivity = *camera_sensitivity.borrow().get();
+        App::new(&window, config, camera_speed, camera_sensitivity).await?
+    };
 
     app.load_buffer(&vertices, &indices);
 
@@ -396,6 +433,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     app.debug().add_debug_item(frame_time.clone());
     app.debug().add_debug_item(color.clone());
     app.debug().add_debug_item(shape_color.clone());
+    app.debug().add_debug_item(camera_speed.clone());
+    app.debug().add_debug_item(camera_sensitivity.clone());
 
     let mut last_instant = std::time::Instant::now();
 
@@ -407,151 +446,174 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
             winit::event::Event::WindowEvent {
                 ref event,
                 window_id,
-            } if window_id == app.window().id() => {
-                // 
-                if !app.input(event) {
-                    match event {
-                        winit::event::WindowEvent::KeyboardInput {
-                            event:
-                                winit::event::KeyEvent {
-                                    logical_key: key,
-                                    state: winit::event::ElementState::Released, // Trigger only once
-                                    ..
-                                },
-                            ..
-                        } => match key {
-                            winit::keyboard::Key::Named(
-                                winit::keyboard::NamedKey::Escape,
-                            ) => ewlt.exit(),
-                            winit::keyboard::Key::Named(
-                                winit::keyboard::NamedKey::F11,
+            } if window_id == app.window().id() && !app.debug_renderer.handle_input(app.window, event) && !app.input(event) => {
+                match event {
+                    winit::event::WindowEvent::KeyboardInput {
+                        event:
+                            winit::event::KeyEvent {
+                                logical_key: key,
+                                state: winit::event::ElementState::Released, // Trigger only once
+                                ..
+                            },
+                        ..
+                    } => match key {
+                        winit::keyboard::Key::Named(
+                            winit::keyboard::NamedKey::Escape,
+                        ) => ewlt.exit(),
+                        winit::keyboard::Key::Named(
+                            winit::keyboard::NamedKey::F11,
+                        ) => {
+                            log::info!("Toggling fullscreen");
+                            app.set_fullscreen(!app.fullscreen());
+                        }
+
+                        _ => {}
+                    },
+                    winit::event::WindowEvent::CloseRequested => {
+                        ewlt.exit()
+                    }
+                    winit::event::WindowEvent::Resized(physical_size) => {
+                        app.resize(*physical_size);
+                    }
+                    winit::event::WindowEvent::RedrawRequested => {
+                        elapsed_handler!(*(&mut wgpu_update) => app.update());
+                        match app.render(&mut wgpu_redraw, &mut egui_redraw)
+                        {
+                            Ok(_) => {}
+                            Err(
+                                wgpu::SurfaceError::Lost
+                                | wgpu::SurfaceError::Outdated,
                             ) => {
-                                log::info!("Toggling fullscreen");
-                                app.set_fullscreen(!app.fullscreen());
+                                app.resize(app.size);
                             }
-
-                            _ => {}
-                        },
-                        winit::event::WindowEvent::CloseRequested => {
-                            ewlt.exit()
-                        }
-                        winit::event::WindowEvent::Resized(physical_size) => {
-                            app.resize(*physical_size);
-                        }
-                        winit::event::WindowEvent::RedrawRequested => {
-                            elapsed_handler!(*(&mut wgpu_update) => app.update());
-                            match app.render(&mut wgpu_redraw, &mut egui_redraw)
-                            {
-                                Ok(_) => {}
-                                Err(
-                                    wgpu::SurfaceError::Lost
-                                    | wgpu::SurfaceError::Outdated,
-                                ) => {
-                                    app.resize(app.size);
-                                }
-                                Err(wgpu::SurfaceError::OutOfMemory) => {
-                                    println!("Out of memory! (peepoSad)");
-                                    ewlt.exit();
-                                }
-                                Err(wgpu::SurfaceError::Timeout) => {
-                                    log::error!("Surface Timeout!");
-                                }
+                            Err(wgpu::SurfaceError::OutOfMemory) => {
+                                println!("Out of memory! (peepoSad)");
+                                ewlt.exit();
                             }
+                            Err(wgpu::SurfaceError::Timeout) => {
+                                log::error!("Surface Timeout!");
+                            }
+                        }
 
-                            let t1 = std::time::Instant::now();
-                            {
-                                let color_ref = color.borrow();
-                                let shape_ref = shape_color.borrow();
+                        let t1 = std::time::Instant::now();
+                        {
+                            let color_ref = color.borrow();
+                            let shape_ref = shape_color.borrow();
 
-                                if shape_ref.has_been_updated() {
-                                    let color_value = shape_ref.get().into_rgb();
-                                    drop(shape_ref); // Drop the reference to be able to borrow mutably
+                            if shape_ref.has_been_updated() {
+                                let color_value = shape_ref.get().into_rgb();
+                                drop(shape_ref); // Drop the reference to be able to borrow mutably
 
-                                    vertices.iter_mut().for_each(|vertex| {
-                                        vertex.set_color(color_value);
-                                    });
+                                vertices.iter_mut().for_each(|vertex| {
+                                    vertex.set_color(color_value);
+                                });
 
-                                    app.load_buffer(&vertices, &indices);
+                                app.load_buffer(&vertices, &indices);
 
-                                    let mut shape_ref_mut = shape_color.borrow_mut();
-                                    shape_ref_mut.reset_updated();
-                                }
-                               
-                                if color_ref.has_been_updated() {
-                                    let color_value = color_ref.get().into_rgba();
-                                    app.pipeline.set_background(wgpu::Color {
-                                        r: color_value[0] as f64,
-                                        g: color_value[1] as f64,
-                                        b: color_value[2] as f64,
-                                        a: color_value[3] as f64,
-                                    });
-                                    {
-                                        drop(color_ref);
-                                        let mut color_mut_ref = color.borrow_mut();
-                                        color_mut_ref.reset_updated();
-                                    }
+                                let mut shape_ref_mut = shape_color.borrow_mut();
+                                shape_ref_mut.reset_updated();
+                            }
+                            
+                            if color_ref.has_been_updated() {
+                                let color_value = color_ref.get().into_rgba();
+                                app.pipeline.set_background(wgpu::Color {
+                                    r: color_value[0] as f64,
+                                    g: color_value[1] as f64,
+                                    b: color_value[2] as f64,
+                                    a: color_value[3] as f64,
+                                });
+                                {
+                                    drop(color_ref);
+                                    let mut color_mut_ref = color.borrow_mut();
+                                    color_mut_ref.reset_updated();
                                 }
                             }
 
-                            let time = std::time::Instant::now();
-                            let duration = time.duration_since(last_instant);
-                            duration_mean = (duration_mean
-                                * duration_count as f32
-                                + (1000.0 * duration.as_secs_f32()))
-                                / (duration_count + 1) as f32;
-                            duration_count += 1;
+                            let speed_ref = camera_speed.borrow();
+                            let sensitivity_ref = camera_sensitivity.borrow();
 
-                            *(&mut egui_update) = time.duration_since(t1);
+                            if speed_ref.has_been_updated() {
+                                log::trace!("Updating camera speed");
+                                app.pipeline.camera_controller.set_speed(*speed_ref.get());
+                                {
+                                    drop(speed_ref);
+                                    let mut speed_mut_ref = camera_speed.borrow_mut();
+                                    speed_mut_ref.reset_updated();
+                                }
+                            }
 
-                            let wgpu_update_f32 =
-                                wgpu_update.as_secs_f32() * 1000.0; // ms
-                            let wgpu_redraw_f32 =
-                                wgpu_redraw.as_secs_f32() * 1000.0; // ms
-                            wgpu_redraw = Duration::from_nanos(0);
-                            let egui_redraw_f32 =
-                                egui_redraw.as_secs_f32() * 1000.0; // ms
-                            egui_redraw = Duration::from_nanos(0);
-                            let egui_update_f32 =
-                                egui_update.as_secs_f32() * 1000.0; // ms
-
-                            let other_time_f32 = (duration.as_secs_f32()
-                                * 1000.0)
-                                - (wgpu_update_f32
-                                    + wgpu_redraw_f32
-                                    + egui_redraw_f32
-                                    + egui_update_f32); // ms
-
-                            frame_time_label.borrow_mut().set((
-                                if duration.as_nanos() > 0 {
-                                    format!(
-                                        "{}",
-                                        1_000_000_000 / duration.as_nanos()
-                                    )
-                                } else {
-                                    "N/A".to_string()
-                                },
-                                duration,
-                                duration_mean,
-                            ));
-
-                            frame_time.borrow_mut().push([
-                                wgpu_update_f32,
-                                wgpu_redraw_f32,
-                                egui_update_f32,
-                                egui_redraw_f32,
-                                other_time_f32,
-                            ]);
-                            last_instant = time;
+                            if sensitivity_ref.has_been_updated() {
+                                log::trace!("Updating camera sensitivity");
+                                app.pipeline.camera_controller.set_sensitivity(*sensitivity_ref.get());
+                                {
+                                    drop(sensitivity_ref);
+                                    let mut sensitivity_mut_ref = camera_sensitivity.borrow_mut();
+                                    sensitivity_mut_ref.reset_updated();
+                                }
+                            }
                         }
-                        
-                        
-                        _ => {
-                            // Nothing to do yet
-                        }
-                    };
-                    app.debug_renderer.handle_input(app.window, event);
-                }
+
+                        let time = std::time::Instant::now();
+                        let duration = time.duration_since(last_instant);
+                        duration_mean = (duration_mean
+                            * duration_count as f32
+                            + (1000.0 * duration.as_secs_f32()))
+                            / (duration_count + 1) as f32;
+                        duration_count += 1;
+
+                        *(&mut egui_update) = time.duration_since(t1);
+
+                        let wgpu_update_f32 =
+                            wgpu_update.as_secs_f32() * 1000.0; // ms
+                        let wgpu_redraw_f32 =
+                            wgpu_redraw.as_secs_f32() * 1000.0; // ms
+                        wgpu_redraw = Duration::from_nanos(0);
+                        let egui_redraw_f32 =
+                            egui_redraw.as_secs_f32() * 1000.0; // ms
+                        egui_redraw = Duration::from_nanos(0);
+                        let egui_update_f32 =
+                            egui_update.as_secs_f32() * 1000.0; // ms
+
+                        let other_time_f32 = (duration.as_secs_f32()
+                            * 1000.0)
+                            - (wgpu_update_f32
+                                + wgpu_redraw_f32
+                                + egui_redraw_f32
+                                + egui_update_f32); // ms
+
+                        frame_time_label.borrow_mut().set((
+                            if duration.as_nanos() > 0 {
+                                format!(
+                                    "{}",
+                                    1_000_000_000 / duration.as_nanos()
+                                )
+                            } else {
+                                "N/A".to_string()
+                            },
+                            duration,
+                            duration_mean,
+                        ));
+
+                        frame_time.borrow_mut().push([
+                            wgpu_update_f32,
+                            wgpu_redraw_f32,
+                            egui_update_f32,
+                            egui_redraw_f32,
+                            other_time_f32,
+                        ]);
+                        last_instant = time;
+                    }
+                    
+                    
+                    _ => {
+                        // Nothing to do yet
+                    }
+                };
             }
+            winit::event::Event::DeviceEvent {
+                event: winit::event::DeviceEvent::MouseMotion{ delta, },
+                .. // We're not using device_id currently
+            } => app.process_mouse_motion(delta),
             winit::event::Event::AboutToWait => {
                 // Send a redraw request
                 app.window().request_redraw();

@@ -2,9 +2,7 @@ use std::error::Error;
 
 use wgpu::util::DeviceExt;
 
-use crate::utils::lisp::prog1;
-
-use super::camera::{self, Camera, CameraBuffer};
+use super::camera::{self, CameraBuffer};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -105,7 +103,7 @@ pub struct Pipeline {
     buffer: Option<Buffer>,
     background_color: wgpu::Color,
     camera: CameraBuffer,
-    camera_controller: camera::CameraController,
+    pub camera_controller: camera::CameraController,
 }
 
 impl Pipeline {
@@ -120,6 +118,8 @@ impl Pipeline {
     pub fn init(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
+        camera_speed: f32,
+        camera_sensitivity: f32,
     ) -> Result<Self, Box<dyn Error>> {
         let shader =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -188,7 +188,10 @@ impl Pipeline {
                 a: 1.0,
             },
             camera,
-            camera_controller: camera::CameraController::new(0.2),
+            camera_controller: camera::CameraController::new(
+                camera_speed,
+                camera_sensitivity,
+            ),
         })
     }
 
@@ -222,18 +225,49 @@ impl Pipeline {
         });
     }
 
-    pub fn process_input(&mut self, event: &winit::event::WindowEvent) -> bool {
-        let pinput = self.camera_controller.process_input(event);
-        if pinput {
-            log::trace!("Camera controller: {:?}", self.camera.camera);
+    pub fn process_input(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        mouse_pressed: &mut bool,
+    ) -> bool {
+        match event {
+            winit::event::WindowEvent::KeyboardInput {
+                event:
+                    winit::event::KeyEvent {
+                        physical_key: winit::keyboard::PhysicalKey::Code(key),
+                        state,
+                        ..
+                    },
+                ..
+            } => self.camera_controller.process_keyboard(*key, *state),
+            winit::event::WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                true
+            }
+            winit::event::WindowEvent::MouseInput {
+                button: winit::event::MouseButton::Left,
+                state,
+                ..
+            } => {
+                *mouse_pressed = *state == winit::event::ElementState::Pressed;
+                true
+            }
+            _ => false,
         }
-        pinput
     }
 
-    pub fn update(&mut self, queue: &wgpu::Queue) {
+    pub fn process_mouse_motion(&mut self, position: (f64, f64)) {
+        self.camera_controller.process_mouse(position.0, position.1);
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.camera.projection.resize(width, height);
+    }
+
+    pub fn update(&mut self, queue: &wgpu::Queue, dt: std::time::Duration) {
         // Update camera
         self.camera_controller
-            .update_camera(&mut self.camera.camera);
+            .update_camera(&mut self.camera.camera, dt);
         self.camera.update(queue);
     }
 
@@ -279,16 +313,5 @@ impl Pipeline {
         } else {
             log::error!("No buffer to render");
         }
-    }
-}
-
-impl CameraBuffer {
-    pub fn update(&mut self, queue: &wgpu::Queue) {
-        self.uniform.update_view_proj(&self.camera);
-        queue.write_buffer(
-            &self.buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniform]),
-        );
     }
 }
