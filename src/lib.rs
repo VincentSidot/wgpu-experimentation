@@ -7,6 +7,7 @@ use config::WindowSizeHint;
 pub use debug::widget::Logger;
 pub use config::Config;
 use config::AppConfig;
+use utils::shape::shape;
 
 
 use std::{error::Error, time::Duration};
@@ -305,7 +306,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         },
     );
     let frame_time = debug::widget::BarChart::new(
-        [[0.0; 5]; 30],
+        [[0.0; 5]; 100],
         [
             "WGPU Update".to_string(),
             "WGPU Draw".to_string(),
@@ -332,53 +333,53 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
         "Background Color",
     );
 
-    let color1 = debug::widget::ColorPicker::new(
-        debug::widget::color::RGB {
+    let shape_color = debug::widget::ColorPicker::new(
+        debug::RGB {
             red: 1.0,
             green: 0.0,
             blue: 0.0,
         },
-        "Color 1",
+        "Shape Color",
     );
 
-    let color2 = debug::widget::ColorPicker::new(
-        debug::RGB {
-            red: 0.0,
-            green: 1.0,
-            blue: 0.0,
-        },
-        "Color 2",
+    let (mut vertices, indices) = shape!(
+        shape_color.borrow().get().into_rgb(); // Red
+        // Cube vertices
+        A => [0.0, 1.0, 1.0],
+        B => [1.0, 1.0, 1.0],
+        C => [1.0, 0.0, 1.0],
+        D => [0.0, 0.0, 1.0],
+        E => [0.0, 1.0, 0.0],
+        F => [1.0, 1.0, 0.0],
+        G => [1.0, 0.0, 0.0],
+        H => [0.0, 0.0, 0.0];
+        // Cube indices
+        // Front face
+        A D C,
+        A C B,
+        // Back face
+        E F G,
+        G H E,
+        // Top face
+        E A B,
+        B F E,
+        // Bottom face
+        H G C,
+        C D H,
+        // Left face
+        A E H,
+        H D A,
+        // Right face
+        F B C,
+        C G F,
     );
-
-    let color3 = debug::widget::ColorPicker::new(
-        debug::RGB {
-            red: 0.0,
-            green: 0.0,
-            blue: 1.0,
-        },
-        "Color 3",
-    );
-
-    let mut vertices = vec![
-        graphics::Vertex::new(
-            [0.0, 0.5, 0.0],
-            color1.borrow().get().into_rgb(),
-        ),
-        graphics::Vertex::new(
-            [-0.5, -0.5, 0.0],
-            color2.borrow().get().into_rgb(),
-        ),
-        graphics::Vertex::new(
-            [0.5, -0.5, 0.0],
-            color3.borrow().get().into_rgb(),
-        ),
-    ];
 
     log::trace!("Vertices: {:?}", vertices);
 
-    let indices = vec![0, 1, 2];
 
     let mut app = App::new(&window, config).await?;
+
+    app.load_buffer(&vertices, &indices);
 
     app.update_size();
     app.pipeline.set_background({
@@ -394,9 +395,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
     app.debug().add_debug_item(frame_time_label.clone());
     app.debug().add_debug_item(frame_time.clone());
     app.debug().add_debug_item(color.clone());
-    app.debug().add_debug_item(color1.clone());
-    app.debug().add_debug_item(color2.clone());
-    app.debug().add_debug_item(color3.clone());
+    app.debug().add_debug_item(shape_color.clone());
 
     let mut last_instant = std::time::Instant::now();
 
@@ -462,36 +461,22 @@ pub async fn run(config: Config) -> Result<(), Box<dyn Error>> {
                             let t1 = std::time::Instant::now();
                             {
                                 let color_ref = color.borrow();
-                                let color1_ref = color1.borrow();
-                                let color2_ref = color2.borrow();
-                                let color3_ref = color3.borrow();
-                                if color1_ref.has_been_updated()
-                                    || color2_ref.has_been_updated()
-                                    || color3_ref.has_been_updated()
-                                {
-                                    // Fetch new color values
-                                    let color1_value = color1_ref.get().into_rgb();
-                                    let color2_value = color2_ref.get().into_rgb();
-                                    let color3_value = color3_ref.get().into_rgb();
+                                let shape_ref = shape_color.borrow();
 
-                                    vertices[0].set_color(color1_value);
-                                    vertices[1].set_color(color2_value);
-                                    vertices[2].set_color(color3_value);
+                                if shape_ref.has_been_updated() {
+                                    let color_value = shape_ref.get().into_rgb();
+                                    drop(shape_ref); // Drop the reference to be able to borrow mutably
+
+                                    vertices.iter_mut().for_each(|vertex| {
+                                        vertex.set_color(color_value);
+                                    });
 
                                     app.load_buffer(&vertices, &indices);
-                                    
-                                    {
-                                        drop(color1_ref);
-                                        drop(color2_ref);
-                                        drop(color3_ref);
-                                        let mut color1_mut_ref = color1.borrow_mut();
-                                        let mut color2_mut_ref = color2.borrow_mut();
-                                        let mut color3_mut_ref = color3.borrow_mut();
-                                        color1_mut_ref.reset_updated();
-                                        color2_mut_ref.reset_updated();
-                                        color3_mut_ref.reset_updated();
-                                    }
+
+                                    let mut shape_ref_mut = shape_color.borrow_mut();
+                                    shape_ref_mut.reset_updated();
                                 }
+                               
                                 if color_ref.has_been_updated() {
                                     let color_value = color_ref.get().into_rgba();
                                     app.pipeline.set_background(wgpu::Color {
