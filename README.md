@@ -2,6 +2,8 @@
 
 This project is an exploration of the WGPU graphics library. The goal is to create a simple 3D graphics program that renders a cube and allows the user to rotate and zoom in/out. Debug information is displayed using the EGUI library.
 
+<img width="1267" alt="image" src="https://github.com/user-attachments/assets/897a2469-f9a9-48b1-805a-b3b9fd637b3a">
+
 # Presentation
 
 todo
