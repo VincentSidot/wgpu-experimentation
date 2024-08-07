@@ -1,3 +1,5 @@
+#![allow(unused_macros, unused_imports)]
+
 macro_rules! prog1 {
     ($first:expr; $($rest:expr);*;) => {{
         let __prog1_result = $first;
