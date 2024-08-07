@@ -102,15 +102,11 @@ pub struct Pipeline {
     render_pipeline: wgpu::RenderPipeline,
     buffer: Option<Buffer>,
     background_color: wgpu::Color,
-    camera: CameraBuffer,
+    pub camera: CameraBuffer,
     pub camera_controller: camera::CameraController,
 }
 
 impl Pipeline {
-    // pub fn background(&self) -> wgpu::Color {
-    //     self.background_color
-    // }
-
     pub fn set_background(&mut self, color: wgpu::Color) {
         self.background_color = color;
     }
@@ -120,6 +116,7 @@ impl Pipeline {
         config: &wgpu::SurfaceConfiguration,
         camera_speed: f32,
         camera_sensitivity: f32,
+        zoom_sensitivity: f32,
     ) -> Result<Self, Box<dyn Error>> {
         let shader =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -191,6 +188,7 @@ impl Pipeline {
             camera_controller: camera::CameraController::new(
                 camera_speed,
                 camera_sensitivity,
+                zoom_sensitivity,
             ),
         })
     }

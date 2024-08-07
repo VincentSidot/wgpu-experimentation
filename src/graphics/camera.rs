@@ -1,6 +1,10 @@
 use cgmath::{InnerSpace, SquareMatrix};
 use wgpu::util::DeviceExt;
 
+use crate::{
+    DEFAULT_CAMERA_PITCH, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_YAW,
+};
+
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_2_PI - 0.001;
 
 #[rustfmt::skip]
@@ -40,6 +44,7 @@ pub struct CameraBuffer {
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
+#[derive(Default)]
 pub struct CameraController {
     amount_left: f32,
     amount_right: f32,
@@ -52,6 +57,7 @@ pub struct CameraController {
     scroll: f32,
     speed: f32,
     sensitivity: f32,
+    zoom_senstivity: f32,
 }
 
 impl Camera {
@@ -84,6 +90,18 @@ impl Camera {
             ),
             cgmath::Vector3::unit_y(),
         )
+    }
+
+    pub fn set_position<P: Into<cgmath::Point3<f32>>>(&mut self, position: P) {
+        self.position = position.into();
+    }
+
+    pub fn set_yaw<Y: Into<cgmath::Rad<f32>>>(&mut self, yaw: Y) {
+        self.yaw = yaw.into();
+    }
+
+    pub fn set_pitch<P: Into<cgmath::Rad<f32>>>(&mut self, pitch: P) {
+        self.pitch = pitch.into();
     }
 }
 
@@ -131,19 +149,12 @@ impl CameraUniform {
 }
 
 impl CameraController {
-    pub fn new(speed: f32, sensitivity: f32) -> Self {
+    pub fn new(speed: f32, sensitivity: f32, zoom_senstivity: f32) -> Self {
         Self {
-            amount_left: 0.0,
-            amount_right: 0.0,
-            amount_forward: 0.0,
-            amount_backward: 0.0,
-            amount_up: 0.0,
-            amount_down: 0.0,
-            rotate_horizontal: 0.0,
-            rotate_vertical: 0.0,
-            scroll: 0.0,
             speed,
             sensitivity,
+            zoom_senstivity,
+            ..Default::default()
         }
     }
 
@@ -153,6 +164,10 @@ impl CameraController {
 
     pub fn set_sensitivity(&mut self, sensitivity: f32) {
         self.sensitivity = sensitivity;
+    }
+
+    pub fn set_zoom_sensitivity(&mut self, zoom_sensitivity: f32) {
+        self.zoom_senstivity = zoom_sensitivity;
     }
 
     pub fn process_keyboard(
@@ -204,7 +219,7 @@ impl CameraController {
     }
 
     pub fn process_scroll(&mut self, delta: &winit::event::MouseScrollDelta) {
-        self.scroll -= match delta {
+        self.scroll += match delta {
             winit::event::MouseScrollDelta::LineDelta(_, scroll) => {
                 scroll * 100.0
             }
@@ -243,8 +258,12 @@ impl CameraController {
             pitch_cos * yaw_sin,
         )
         .normalize();
-        camera.position +=
-            scrollward * self.scroll * self.speed * self.sensitivity * dt;
+
+        // If build target is macos, the scroll is inverted.
+        #[cfg(target_os = "macos")]
+        let scrollward = -scrollward;
+
+        camera.position += scrollward * self.scroll * self.zoom_senstivity * dt;
         self.scroll = 0.0;
 
         // Move up/down. Since we don't use roll, we can just
@@ -280,9 +299,9 @@ impl CameraBuffer {
     ) -> Self {
         let mut uniform = CameraUniform::new();
         let camera = Camera::new(
-            (0.0, 5.0, 10.0),
-            cgmath::Deg(-90.0),
-            cgmath::Deg(-20.0),
+            DEFAULT_CAMERA_POSITION,
+            DEFAULT_CAMERA_YAW,
+            DEFAULT_CAMERA_PITCH,
         );
         let projection = Projection::new(
             config.width,
