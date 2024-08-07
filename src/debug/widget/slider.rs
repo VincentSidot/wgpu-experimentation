@@ -9,7 +9,6 @@ pub struct Slider<T> {
     has_been_updated: bool,
 }
 
-#[allow(dead_code)]
 impl<T> Slider<T> {
     pub fn new<S: ToString>(
         value: T,
@@ -24,21 +23,19 @@ impl<T> Slider<T> {
         }))
     }
 
-    pub fn set(&mut self, value: T) {
-        self.value = value;
-        self.has_been_updated = true;
-    }
-
     pub fn get(&self) -> &T {
         &self.value
     }
 
-    pub fn has_been_updated(&self) -> bool {
-        self.has_been_updated
-    }
-
-    pub fn reset_updated(&mut self) {
-        self.has_been_updated = false;
+    pub fn callback_update(&mut self, f: impl FnOnce(&mut T))
+    where
+        T: std::fmt::Debug,
+    {
+        if self.has_been_updated {
+            log::trace!("Updating value of {} to {:?}", self.name, self.value);
+            f(&mut self.value);
+            self.has_been_updated = false;
+        }
     }
 }
 

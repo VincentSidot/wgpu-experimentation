@@ -135,12 +135,15 @@ where
         &self.format
     }
 
-    pub fn has_been_updated(&self) -> bool {
-        self.has_been_updated
-    }
-
-    pub fn reset_updated(&mut self) {
-        self.has_been_updated = false;
+    pub fn callback_update(&mut self, f: impl FnOnce(&mut C))
+    where
+        C: std::fmt::Debug,
+    {
+        if self.has_been_updated {
+            log::trace!("Updating value of {:?}", self.reference);
+            f(&mut self.reference);
+            self.has_been_updated = false;
+        }
     }
 }
 
