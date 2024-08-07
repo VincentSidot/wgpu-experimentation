@@ -1,5 +1,4 @@
 use clap::{Parser, ValueEnum};
-use serde::Serialize;
 use wgpu::{PresentMode, SurfaceCapabilities};
 
 /// Config struct for the application
@@ -13,7 +12,7 @@ use wgpu::{PresentMode, SurfaceCapabilities};
     long_about = "Small Rust Program using WGPU, with an EGUI interface built on top of it to display simple debug information",
     author = "Vincent S."
 )]
-pub struct Config {
+pub struct ClapConfig {
     /// Title of the window
     #[arg(short = 't', long = "title", default_value = "Test WGPU")]
     window_title: String,
@@ -31,19 +30,28 @@ pub struct Config {
     window_width: u32,
 
     /// Present mode configuration
-    #[arg(short = 'p', long = "present-mode", default_value = "default")]
-    present_mode: PresentModeConfig,
+    #[arg(short = 'p', long = "present-mode")]
+    present_mode: Option<PresentModeConfig>,
+
+    /// Backend selection
+    #[arg(short = 'b', long = "backend")]
+    backend: Option<BackendSelection>,
+
+    /// Disable EGUI Rendering
+    #[arg(short = 'd', long = "disable-egui")]
+    disable_egui: bool,
 }
 
-pub struct AppConfig {
+pub struct Config {
+    pub backends: wgpu::Backends,
+    pub disable_egui: bool,
+    pub present_mode: Option<PresentModeConfig>,
     pub window_title: String,
     pub window_size: WindowSizeConfig,
-    pub present_mode: PresentModeConfig,
 }
 
 /// Enum to hold the different window sizes
-#[derive(Debug, Clone, ValueEnum, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum WindowSizeHint {
     #[clap(help = "Fullscreen mode with borders.")]
     Fullscreen,
@@ -59,33 +67,70 @@ pub struct WindowSizeConfig {
     pub size: (u32, u32),
 }
 
-#[derive(Debug, Default, Clone, ValueEnum, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, ValueEnum)]
 pub enum PresentModeConfig {
     #[clap(help = "Chooses FifoRelaxed -> Fifo based on availability.")]
-    AutoVsync = 0,
+    AutoVsync,
     #[clap(
         help = "Chooses Immediate -> Mailbox -> Fifo (on web) based on availability."
     )]
-    AutoNoVsync = 1,
+    AutoNoVsync,
     #[clap(help = "Supported on all platforms.")]
-    Fifo = 2,
+    Fifo,
     #[clap(help = "Supported on AMD on Vulkan.")]
-    FifoRelaxed = 3,
+    FifoRelaxed,
     #[clap(
         help = "Supported on most platforms except older DX12 and Wayland."
     )]
-    Immediate = 4,
+    Immediate,
     #[clap(
         help = "Supported on DX12 on Windows 10, NVidia on Vulkan and Wayland on Vulkan."
     )]
-    Mailbox = 5,
-    #[default]
-    #[clap(help = "Uses the first available present mode.")]
-    Default = 6,
+    Mailbox,
 }
 
-impl PresentModeConfig {
+#[derive(Debug, Clone, ValueEnum)]
+pub enum BackendSelection {
+    #[clap(
+        help = "Use the Vulkan backend. (Windows, Linux, Android, MacOS via vulkan-portability/MoltenVK)"
+    )]
+    Vulkan,
+    #[clap(help = "Use the Metal backend. (Apple platforms)")]
+    Metal,
+    #[clap(help = "Use the DX12 backend. (Windows)")]
+    DirectX12,
+    #[clap(
+        help = "Use the OpenGL backend. (Windows, Linux, Android, MacOS via Angle) (Not recommended)"
+    )]
+    OpenGL,
+}
+
+fn to_wgpu_backend(value: Option<BackendSelection>) -> wgpu::Backends {
+    match value {
+        Some(value) => match value {
+            BackendSelection::Vulkan => wgpu::Backends::VULKAN,
+            BackendSelection::Metal => wgpu::Backends::METAL,
+            BackendSelection::DirectX12 => wgpu::Backends::DX12,
+            BackendSelection::OpenGL => wgpu::Backends::GL,
+        },
+        None => wgpu::Backends::all(),
+    }
+}
+
+impl Default for WindowSizeConfig {
+    fn default() -> Self {
+        Self {
+            size: (800, 600),
+            hint: WindowSizeHint::Windowed,
+        }
+    }
+}
+
+impl Config {
+    pub fn init() -> Self {
+        ClapConfig::init().compute()
+    }
+
     pub fn to_wgpu_present_mode(
         &self,
         surface_caps: &SurfaceCapabilities,
@@ -94,15 +139,15 @@ impl PresentModeConfig {
             .present_modes
             .first()
             .ok_or("No present modes found")?;
-        match self {
-            PresentModeConfig::Default => {
+        match &self.present_mode {
+            None => {
                 log::trace!(
                     "Using default present mode: {:?}",
                     fallback_present_mode
                 );
                 Ok(fallback_present_mode)
             }
-            present_mode => {
+            Some(present_mode) => {
                 let wanted_present_mode = match present_mode {
                     PresentModeConfig::AutoVsync => PresentMode::Fifo,
                     PresentModeConfig::AutoNoVsync => PresentMode::Immediate,
@@ -110,7 +155,6 @@ impl PresentModeConfig {
                     PresentModeConfig::FifoRelaxed => PresentMode::FifoRelaxed,
                     PresentModeConfig::Immediate => PresentMode::Immediate,
                     PresentModeConfig::Mailbox => PresentMode::Mailbox,
-                    PresentModeConfig::Default => unreachable!(),
                 };
                 // Ensure the requested present mode is supported
                 if surface_caps.present_modes.contains(&wanted_present_mode) {
@@ -129,29 +173,21 @@ impl PresentModeConfig {
     }
 }
 
-impl Default for WindowSizeConfig {
-    fn default() -> Self {
-        Self {
-            size: (800, 600),
-            hint: WindowSizeHint::Windowed,
-        }
-    }
-}
-
-impl Config {
-    pub fn compute(self) -> AppConfig {
-        let window_size = WindowSizeConfig {
-            hint: self.screen_mode,
-            size: (self.window_width, self.window_height),
-        };
-        AppConfig {
-            window_title: self.window_title,
-            window_size,
+impl ClapConfig {
+    fn compute(self) -> Config {
+        Config {
+            backends: to_wgpu_backend(self.backend),
+            disable_egui: self.disable_egui,
             present_mode: self.present_mode,
+            window_title: self.window_title,
+            window_size: WindowSizeConfig {
+                hint: self.screen_mode,
+                size: (self.window_width, self.window_height),
+            },
         }
     }
 
-    pub fn init() -> Self {
+    pub fn init() -> ClapConfig {
         Self::parse()
     }
 }

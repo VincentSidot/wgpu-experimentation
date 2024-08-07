@@ -1666,7 +1666,6 @@ dependencies = [
  "egui-winit",
  "log",
  "pollster",
- "serde",
  "wgpu",
  "winit",
 ]
