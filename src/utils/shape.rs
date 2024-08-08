@@ -1,41 +1,34 @@
 macro_rules! shape{
-    (@step $idx:expr, $vec: ident, $color: expr, $name:ident, $pos:expr) => {
+    (@step $idx:expr, $name:ident) => {
 
         #[allow(non_snake_case)]
         let $name = $idx;
-
-        $vec.push(
-            crate::graphics::Vertex::new($pos, $color)
-        );
     };
-    (@step $idx:expr, $vec:ident, $color:expr, $name:ident, $pos: expr, $($tail_color: expr, $tail_name:ident, $tail_pos: expr),*) => {
+    (@step $idx:expr, $name:ident, $($tail_name:ident),*) => {
 
         #[allow(non_snake_case)]
         let $name = $idx;
-        $vec.push(crate::graphics::Vertex::new($pos, $color));
-        shape!(@step $idx + 1, $vec, $($tail_color, $tail_name, $tail_pos),*);
+        shape!(@step $idx + 1, $($tail_name),*);
     };
     (
         $($name:ident => $pos:expr, $color: expr),*;
-        // $($pointA:ident $pointB:ident $pointC:ident),*,
         $($($point:ident) *),*,
     ) => {
         {
-
-            let mut vertex = Vec::new();
-            let mut indices = Vec::new();
-
-
-            shape!(@step 0u16, vertex, $($color, $name, $pos),*);
-
-            $(
-                $(
-                    indices.push($point);
-                )*
-            )*
+            // Create one variable for each point
+            // Value of the variable is the index of the point
+            shape!(@step 0u16, $($name),*);
 
 
-            (vertex, indices)
+            (
+                [
+                    // Vertex
+                    $(crate::graphics::Vertex::new($pos, $color),)*
+                ], [
+                    // Indices
+                    $($($point),*),*
+                ]
+            )
         }
     };
     (
