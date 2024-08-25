@@ -154,7 +154,7 @@ impl Scene for GameOfLife {
     // ...
 }
 
-const GRID_SIZE: usize = 600;
+const GRID_SIZE: usize = 300;
 const TIME_STEP: f32 = 0.0 / 20.0;
 const BOX_SIZE: f32 = 20.0;
 
