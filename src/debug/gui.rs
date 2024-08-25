@@ -7,6 +7,18 @@ pub struct Debug {
     debug_items: Vec<Rc<RefCell<dyn DebugItem>>>,
 }
 
+struct Separator;
+impl Separator {
+    const fn new() -> Self {
+        Self
+    }
+}
+impl DebugItem for Separator {
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+    }
+}
+
 impl Debug {
     pub fn init() -> Self {
         Self {
@@ -15,8 +27,18 @@ impl Debug {
         }
     }
 
-    pub fn add_debug_item(&mut self, item: Rc<RefCell<dyn DebugItem>>) {
+    pub fn add_separator(&mut self) -> &mut Self {
+        self.debug_items
+            .push(Rc::new(RefCell::new(Separator::new())));
+        self
+    }
+
+    pub fn add_debug_item(
+        &mut self,
+        item: Rc<RefCell<dyn DebugItem>>,
+    ) -> &mut Self {
         self.debug_items.push(item);
+        self
     }
 
     pub fn run_ui(&mut self, ui: &egui::Context) {

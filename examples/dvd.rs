@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use cgmath::Vector3;
 use test_wgpu::{
-    widget::{self, debug::DebugItem, Label},
+    widget::{debug::DebugItem, Label},
     App, Config, Instance, Logger, Scene, Shape,
 };
 
@@ -112,7 +112,7 @@ fn main() {
     app.add_scene(Box::new(MyApp::new()));
 
     pollster::block_on(
-        app.run(include_str!("graphics/shaders/shader_edge.wgsl")),
+        app.run(include_str!("../src/graphics/shaders/shader_edge.wgsl")),
     )
     .expect("Failed to run the application");
 }

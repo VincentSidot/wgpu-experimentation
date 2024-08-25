@@ -1,9 +1,14 @@
-use cgmath::{InnerSpace, SquareMatrix};
+use std::default;
+
+use cgmath::{Deg, InnerSpace, SquareMatrix};
 use wgpu::util::DeviceExt;
 
-use crate::{
-    DEFAULT_CAMERA_PITCH, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_YAW,
-};
+pub(crate) const DEFAULT_CAMERA_POSITION: [f32; 3] = [-11.0, 15.0, 20.0];
+pub(crate) const DEFAULT_CAMERA_YAW: cgmath::Deg<f32> = cgmath::Deg(-60.0);
+pub(crate) const DEFAULT_CAMERA_PITCH: cgmath::Deg<f32> = cgmath::Deg(-35.0);
+pub(crate) const DEFAULT_CAMERA_SPEED: f32 = 7.0;
+pub(crate) const DEFAULT_CAMERA_SENSITIVITY: f32 = 2.0;
+pub(crate) const DEFAULT_CAMERA_ZOOM_SENSITIVITY: f32 = 2.5;
 
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_2_PI - 0.001;
 
@@ -42,9 +47,9 @@ pub struct CameraBuffer {
     pub projection: Projection,
     bind_group: wgpu::BindGroup,
     bind_group_layout: wgpu::BindGroupLayout,
+    pub has_been_updated: bool,
 }
 
-#[derive(Default)]
 pub struct CameraController {
     amount_left: f32,
     amount_right: f32,
@@ -77,6 +82,14 @@ impl Camera {
         }
     }
 
+    pub fn default() -> Self {
+        Self {
+            position: DEFAULT_CAMERA_POSITION.into(),
+            yaw: DEFAULT_CAMERA_YAW.into(),
+            pitch: DEFAULT_CAMERA_PITCH.into(),
+        }
+    }
+
     fn calc_matrix(&self) -> cgmath::Matrix4<f32> {
         let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
         let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
@@ -92,15 +105,15 @@ impl Camera {
         )
     }
 
-    pub fn set_position<P: Into<cgmath::Point3<f32>>>(&mut self, position: P) {
+    fn set_position<P: Into<cgmath::Point3<f32>>>(&mut self, position: P) {
         self.position = position.into();
     }
 
-    pub fn set_yaw<Y: Into<cgmath::Rad<f32>>>(&mut self, yaw: Y) {
+    fn set_yaw<Y: Into<cgmath::Rad<f32>>>(&mut self, yaw: Y) {
         self.yaw = yaw.into();
     }
 
-    pub fn set_pitch<P: Into<cgmath::Rad<f32>>>(&mut self, pitch: P) {
+    fn set_pitch<P: Into<cgmath::Rad<f32>>>(&mut self, pitch: P) {
         self.pitch = pitch.into();
     }
 }
@@ -121,7 +134,7 @@ impl Projection {
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
+    fn resize(&mut self, width: u32, height: u32) {
         self.aspect = width as f32 / height as f32;
     }
 
@@ -149,15 +162,6 @@ impl CameraUniform {
 }
 
 impl CameraController {
-    pub fn new(speed: f32, sensitivity: f32, zoom_senstivity: f32) -> Self {
-        Self {
-            speed,
-            sensitivity,
-            zoom_senstivity,
-            ..Default::default()
-        }
-    }
-
     pub fn set_speed(&mut self, speed: f32) {
         self.speed = speed;
     }
@@ -231,9 +235,26 @@ impl CameraController {
 
     pub fn update_camera(
         &mut self,
-        camera: &mut Camera,
+        camera_buffer: &mut CameraBuffer,
         dt: std::time::Duration,
     ) {
+        let camera = &mut camera_buffer.camera;
+
+        if self.amount_forward == 0.0
+            && self.amount_backward == 0.0
+            && self.amount_left == 0.0
+            && self.amount_right == 0.0
+            && self.amount_up == 0.0
+            && self.amount_down == 0.0
+            && self.rotate_horizontal == 0.0
+            && self.rotate_vertical == 0.0
+            && self.scroll == 0.0
+        {
+            return;
+        } else {
+            camera_buffer.has_been_updated = true;
+        }
+
         let dt = dt.as_secs_f32();
 
         // Move forward/backward and left/right
@@ -292,17 +313,48 @@ impl CameraController {
     }
 }
 
+impl Default for CameraController {
+    fn default() -> Self {
+        Self {
+            amount_left: 0.0,
+            amount_right: 0.0,
+            amount_forward: 0.0,
+            amount_backward: 0.0,
+            amount_up: 0.0,
+            amount_down: 0.0,
+            rotate_horizontal: 0.0,
+            rotate_vertical: 0.0,
+            scroll: 0.0,
+            speed: DEFAULT_CAMERA_SPEED,
+            sensitivity: DEFAULT_CAMERA_SENSITIVITY,
+            zoom_senstivity: DEFAULT_CAMERA_ZOOM_SENSITIVITY,
+        }
+    }
+}
+
 impl CameraBuffer {
+    pub fn reset_camera(&mut self) {
+        self.camera = Camera::default();
+    }
+
+    pub fn get_camera_info(&self) -> (f32, f32, f32, f32, f32) {
+        let yaw: Deg<f32> = self.camera.yaw.into();
+        let pitch: Deg<f32> = self.camera.pitch.into();
+        (
+            self.camera.position[0],
+            self.camera.position[1],
+            self.camera.position[2],
+            yaw.0,
+            pitch.0,
+        )
+    }
+
     pub fn init(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
     ) -> Self {
         let mut uniform = CameraUniform::new();
-        let camera = Camera::new(
-            DEFAULT_CAMERA_POSITION,
-            DEFAULT_CAMERA_YAW,
-            DEFAULT_CAMERA_PITCH,
-        );
+        let camera = Camera::default();
         let projection = Projection::new(
             config.width,
             config.height,
@@ -349,6 +401,7 @@ impl CameraBuffer {
             projection,
             bind_group,
             bind_group_layout,
+            has_been_updated: false,
         }
     }
 
@@ -361,6 +414,9 @@ impl CameraBuffer {
     }
 
     pub fn update(&mut self, queue: &wgpu::Queue) {
+        if !self.has_been_updated {
+            return;
+        }
         self.uniform
             .update_view_proj(&self.camera, &self.projection);
         queue.write_buffer(
@@ -368,5 +424,26 @@ impl CameraBuffer {
             0,
             bytemuck::cast_slice(&[self.uniform]),
         );
+        self.has_been_updated = false;
+    }
+
+    pub fn set_position<P: Into<cgmath::Point3<f32>>>(&mut self, position: P) {
+        self.camera.set_position(position);
+        self.has_been_updated = true;
+    }
+
+    pub fn set_yaw<Y: Into<cgmath::Rad<f32>>>(&mut self, yaw: Y) {
+        self.camera.set_yaw(yaw);
+        self.has_been_updated = true;
+    }
+
+    pub fn set_pitch<P: Into<cgmath::Rad<f32>>>(&mut self, pitch: P) {
+        self.camera.set_pitch(pitch);
+        self.has_been_updated = true;
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.projection.resize(width, height);
+        self.has_been_updated = true;
     }
 }

@@ -17,6 +17,13 @@ macro_rules! prog2 {
     }};
 }
 
+macro_rules! setq {
+    ($value: expr => $name: expr) => {{
+        $name = $value;
+        $name
+    }};
+}
+
 // macro_rules! prog2 {
 //     ($first:expr; $($rest:expr);*) => {{
 //         $first;
@@ -26,6 +33,7 @@ macro_rules! prog2 {
 
 pub(crate) use prog1;
 pub(crate) use prog2;
+pub(crate) use setq;
 
 #[cfg(test)]
 

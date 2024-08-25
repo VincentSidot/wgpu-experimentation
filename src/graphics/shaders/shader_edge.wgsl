@@ -26,7 +26,38 @@ struct InstanceInput {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) color: vec3<f32>,
+    @location(1) position: vec3<f32>,
 };
+
+const SHAPE_MIN_SIZE: vec3<f32> = vec3<f32>(-10.0, -10.0, -10.0);
+const SHAPE_MAX_SIZE: vec3<f32> = vec3<f32>(10.0, 10.0, 10.0);
+const epsilon: f32 = 0.2;
+// const SHAPE_MIN_SIZE: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+// const SHAPE_MAX_SIZE: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
+// const epsilon: f32 = 0.05;
+
+
+fn is_on_edge(positions: vec3<f32>) -> bool {
+    if positions.x == SHAPE_MIN_SIZE.x || positions.x == SHAPE_MAX_SIZE.x {
+        return true;
+    }
+    // return false;
+    return true;
+}
+
+fn compare(position: vec3<f32>, side: i32) -> bool {
+    return abs(position[side] - SHAPE_MIN_SIZE[side]) < epsilon || abs(position[side] - SHAPE_MAX_SIZE[side]) < epsilon;
+}
+
+fn check_on_side(position: vec3<f32>, side: i32) -> bool {
+    // return abs(position[side] - SHAPE_MIN_SIZE[side]) < epsilon || abs(position[side] - SHAPE_MAX_SIZE[side]) < epsilon;
+    return compare(position, side)
+    && (
+        (compare(position, (side + 1) % 3) && !compare(position, (side + 2) % 3))
+    ||  (!compare(position, (side + 1) % 3) && compare(position, (side + 2) % 3))
+    ||  (compare(position, (side + 1) % 3) && compare(position, (side + 2) % 3))
+    );
+}
 
 // Vertex shader
 // This shader is used to transform the vertices of the triangle from model space to clip space.
@@ -42,7 +73,15 @@ fn vs_main(
         instance.model_matrix_3,
     );
     var out: VertexOutput;
+
+    // If the model is on the edge of the shape, the color is set to black.
+    // if (is_on_edge(model.position)) {
+    //     out.color = vec3<f32>(0.0, 0.0, 0.0);
+    // } else {
+    //     out.color = model.color;
+    // }
     out.color = model.color;
+    out.position = model.position;
 
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     return out;
@@ -52,5 +91,12 @@ fn vs_main(
 // This shader is used to compute the color of each pixel of the triangle.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if (
+        check_on_side(in.position, 0)
+    ||  check_on_side(in.position, 1)
+    ||  check_on_side(in.position, 2)
+    ) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
     return vec4<f32>(in.color, 1.0);
 }

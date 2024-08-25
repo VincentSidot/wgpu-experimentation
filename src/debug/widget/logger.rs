@@ -1,4 +1,11 @@
+use super::debug::DebugItem;
+use colored::Colorize;
 use core::f32;
+use egui::{
+    text::{self, Fonts, LayoutJob},
+    FontDefinitions, FontId, Label, RichText, Vec2b,
+};
+use log::Level;
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::RefCell,
@@ -8,14 +15,6 @@ use std::{
     sync::Arc,
     usize,
 };
-
-use egui::{
-    text::{self, Fonts, LayoutJob},
-    FontDefinitions, FontId, Label, RichText, Vec2b,
-};
-use log::Level;
-
-use super::debug::DebugItem;
 
 const INFO_COLOR: egui::Color32 = egui::Color32::WHITE;
 const WARNING_COLOR: egui::Color32 = egui::Color32::YELLOW;
@@ -136,11 +135,13 @@ const fn color(level: &Level) -> egui::Color32 {
 struct StaticLogger {
     items: Vec<LoggerMessage>,
     level: log::Level,
+    stdout: bool,
 }
 
 static mut LOGGER: StaticLogger = StaticLogger {
     items: Vec::new(),
     level: log::Level::Trace,
+    stdout: false,
 };
 
 pub struct Logger {
@@ -168,12 +169,16 @@ impl Logger {
         }
     }
 
-    pub fn setup() -> Result<(), Box<dyn std::error::Error>> {
+    pub fn setup(stdout: bool) -> Result<(), Box<dyn std::error::Error>> {
         unsafe {
             #[allow(static_mut_refs)]
             // SAFETY: We are the only ones accessing it
             log::set_logger(&LOGGER).map_err(|_| "Failed to set logger")?;
             log::set_max_level(log::LevelFilter::Trace);
+            if stdout {
+                LOGGER.stdout = true;
+                println!("Logger initialized on stdout");
+            }
         }
         log::info!("Logger initialized");
         Ok(())
@@ -382,14 +387,42 @@ impl log::Log for StaticLogger {
         }
 
         if self.enabled(record.metadata()) {
-            unsafe {
-                LOGGER.items.push(LoggerMessage {
-                    content: record.args().to_string(),
-                    source: record.target().to_string(),
-                    level: record.level(),
-                    file: record.file().unwrap_or("unknown").to_string(),
-                    line: record.line().unwrap_or(0),
-                });
+            if unsafe { !LOGGER.stdout } {
+                unsafe {
+                    LOGGER.items.push(LoggerMessage {
+                        content: record.args().to_string(),
+                        source: record.target().to_string(),
+                        level: record.level(),
+                        file: record.file().unwrap_or("unknown").to_string(),
+                        line: record.line().unwrap_or(0),
+                    });
+                }
+            } else {
+                let target = record.target();
+                let level = record.level();
+                let message = record.args();
+
+                println!(
+                    "{}",
+                    match level {
+                        log::Level::Error => {
+                            format!("[ERROR -> {}] {}", target, message).red()
+                        }
+                        log::Level::Warn => {
+                            format!("[WARN -> {}] {}", target, message).yellow()
+                        }
+                        log::Level::Info => {
+                            format!("[INFO -> {}] {}", target, message).normal()
+                        }
+                        log::Level::Debug => {
+                            format!("[DEBUG -> {}] {}", target, message)
+                                .purple()
+                        }
+                        log::Level::Trace => {
+                            format!("[TRACE -> {}] {}", target, message).blue()
+                        }
+                    }
+                );
             }
         }
     }

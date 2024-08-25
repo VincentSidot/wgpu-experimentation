@@ -3,7 +3,7 @@ use egui::{epaint::Shadow, Context, Visuals};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 
-use crate::app::{DrawPipeline, GraphicalProcessUnit};
+use crate::render::{DrawPipeline, GraphicalProcessUnit};
 
 pub struct DebugRenderer {
     pub context: Context,
